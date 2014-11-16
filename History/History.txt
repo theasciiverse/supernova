@@ -37,5 +37,4 @@ AGPLv3 or later is permitted under section 13 of each license.
 [2] See the file supernova-freeware.pgn or visit https://web.archive.org/web/20141014112730/http://www.3drealms.com/news/1998/03/supernova_relea.html
 [3] See the file gpl-announcement.png or visit https://web.archive.org/web/*/http://www.3drealms.com/news/2009/03/several_old_games_released_as_freeware.html
 [4] See readme.txt in this directory.
-[5] See the initial commit in this git repository or ftp://ftp.3drealms.com/freeware/tit_free.zip
-
+[5] See the initial commit in this git repository or ftp://ftp.3drealms.com/freeware/snova_fw.zip
