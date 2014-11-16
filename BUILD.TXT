@@ -10,9 +10,9 @@ sudo apt-get install fpc fp-units-multimedia libncursesw5-dev
 
 To compile it change into the src directory and then run:
 
-fpc BEYOND.PAS
+fpc NOVA.PAS
 
-The binary will be named BEYOND and stored in the src directory.
+The binary will be named NOVA and stored in the src directory.
 
 Known Limitations:
 * You must be in the 'src' directory to successfully run the program. 
