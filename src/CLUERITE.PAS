@@ -1,5 +1,27 @@
 {//-------------------------------------------------------------------------}
 {/*                                                                         }
+{Copyright (C) 2014 Jason Self <j@jxself.org>                               }
+{                                                                           }
+{This file is free software: you may copy, redistribute and/or modify it    }
+{under the terms of the GNU Affero General Public License as published by   }
+{the Free Software Foundation, either version 3 of the License, or (at your }
+{option) any later version.                                                 }
+{                                                                           }
+{This file is distributed in the hope that it will be useful, but WITHOUT   }
+{ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      }
+{FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License}
+{for more details.                                                          }
+{                                                                           }
+{You should have received a copy of the GNU Affero General Public License   }
+{along with this program; if not, see https://gnu.org/licenses or write to: }
+{  Free Software Foundation, Inc.                                           }
+{  51 Franklin Street, Fifth Floor                                          }
+{  Boston, MA 02110-1301                                                    }
+{  USA                                                                      }
+{                                                                           }
+{This file incorporates work covered by the following copyright and         }
+{permission notice:                                                         }
+{                                                                           }
 {Copyright (C) 1990, 2009 - Apogee Software, Ltd.                           }
 {                                                                           }
 {This file is part of Supernova.  Supernova is free software; you can       }
@@ -25,6 +47,8 @@
 {*/                                                                         }
 {//-------------------------------------------------------------------------}
 {$c-}
+uses crt;
+
 const
   Max = 77;
 
@@ -62,7 +86,7 @@ text1   : MaxLength;
       begin
         highvideo;
         READ(C1,text1);
-        if list then writeln(lst,counter,':',text1)
+        if list then writeln(counter,':',text1)
         else
           begin
             writeln('Here is CLUE # ',counter);
@@ -89,7 +113,7 @@ repeat          {Main loop.}
 
 writeln;
 writeln('Do you want to R)ead, W)rite or Q)uit?');
-read(kbd,answer);
+answer:=readkey;
 if upcase(answer) = 'Q' then begin writeln('FINISHED');halt;end;
 if upcase(answer) <> 'R' then       {Write to 'Clues'.}
     begin
@@ -103,7 +127,7 @@ if upcase(answer) <> 'R' then       {Write to 'Clues'.}
       x:=wherey;if(x>21)then x:=22;for stop:=1 to 3 do writeln;gotoxy(1,x);
       textcolor(11);
         repeat
-          read(trm,letter);
+          letter:=readkey;
           if letter = ^h then
             begin
               write(^h,' ',^h);
@@ -129,7 +153,7 @@ else                      {Read from 'Clues'.}
   begin
     writeln;writeln;
     writeln('To the S)creen or the P)rinter');
-    read(kbd,answer);
+    answer:=readkey;
     if(upcase(answer)='P')then List:=True else List:=False;
     assign(C1,'C1');
     reset(C1);

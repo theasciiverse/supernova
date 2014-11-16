@@ -1,5 +1,27 @@
 {//-------------------------------------------------------------------------}
 {/*                                                                         }
+{Copyright (C) 2014 Jason Self <j@jxself.org>                               }
+{                                                                           }
+{This file is free software: you may copy, redistribute and/or modify it    }
+{under the terms of the GNU Affero General Public License as published by   }
+{the Free Software Foundation, either version 3 of the License, or (at your }
+{option) any later version.                                                 }
+{                                                                           }
+{This file is distributed in the hope that it will be useful, but WITHOUT   }
+{ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or      }
+{FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License}
+{for more details.                                                          }
+{                                                                           }
+{You should have received a copy of the GNU Affero General Public License   }
+{along with this program; if not, see https://gnu.org/licenses or write to: }
+{  Free Software Foundation, Inc.                                           }
+{  51 Franklin Street, Fifth Floor                                          }
+{  Boston, MA 02110-1301                                                    }
+{  USA                                                                      }
+{                                                                           }
+{This file incorporates work covered by the following copyright and         }
+{permission notice:                                                         }
+{                                                                           }
 {Copyright (C) 1990, 2009 - Apogee Software, Ltd.                           }
 {                                                                           }
 {This file is part of Supernova.  Supernova is free software; you can       }
@@ -46,20 +68,238 @@ function  FN(VNP:byte):Str29;forward;
 function  Here(Obj:byte):Boolean;forward;
 function  Up(Word:Str130):Str1;forward;
 
+{$IFDEF UNIX}
+procedure init_windows;
+  var lang:string;
+ begin
+  nEcho(false);
+  stdscr:=nscreen;
+  { Get ENV LANG and check for UTF-8 support}
+  lang:=upcase(GetEnvironmentVariable('LANG'));  
+  UTF8Scr:= (Pos('.UTF-8', lang) > 0) or (Pos('.UTF8', lang) > 0);
+  { Check min req col & rows}
+  {writeln(nCols(stdscr),nRows(stdscr));}
+ end;
+
+procedure WritePrompt(x,y:integer);
+ begin
+  { UTF-8 print }
+  if UTF8Scr then
+   { U+00BB, », C2 BB, RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK.}
+   nFWrite(x,y,TextAttr,0,#$C2#$BB)
+  else 
+   nFWrite(x,y,TextAttr,0,chr(187));
+  refresh;
+ end;
+
+{$ELSE}
+procedure nSetActiveWin(win:pwin);
+ begin
+  with win^ do
+   window(x,y,x1,y1);
+ end;
+
+procedure nWindow(var win : pwin; x,y,x1,y1 : integer);
+ begin
+  win^.x:=x;   win^.y:=y;
+  win^.x1:=x1; win^.y1:=y1;
+ end;
+
+procedure init_windows;
+ begin
+  stdscr:=@win_arr[1];
+  win1:=@win_arr[2];
+  win2:=@win_arr[3];
+  nWindow(stdscr,1,1,80,25);
+ end;
+
+procedure WritePrompt(x,y:integer);
+ begin
+  gotoxy(x,y);
+  write(chr(175));
+ end;
+{$ENDIF}
+
+function square_wave(time : Real):integer;
+  var l:longint;
+ begin
+  l:=trunc(time);
+  if time-l < 0.5 then square_wave:=0 
+                  else square_wave:=1;
+ end;
+
+{callback function to generate sound}
+procedure ProccessAudio(userdata: Pointer; stream: PUInt8; len: LongInt); cdecl;
+  var i,j,k,step:integer;
+ begin
+  step:=audio_STEP;
+  for i:=0 to trunc((len-1)/step) do begin
+   
+   if speaker_on then
+    if sound_i > 0 then begin
+     current_freq:=sound_Freqs[sound_play]/audio_freq;
+     if current_freq=0 then current_freq:=1;
+     sound_play:=sound_play+1;
+     if sound_play > sound_i then begin
+      speaker_on:=false; sound_i:=0; sound_play:=0; end;
+    end;
+
+   lasttime:=trunc(lasttime*lastfreq/current_freq);
+   
+   for j:=0 to step-1 do begin
+    k:=i*step+j;
+    if k<len then
+     if speaker_on then
+      stream[k]:=audio_VOLUME*square_wave(current_freq * (j+lasttime) )
+     else
+      stream[k]:=0;
+   end;
+
+   lasttime:=lasttime+step;
+   lastfreq:=current_freq; 
+  end;
+ end; 
+
+function InitAudio:boolean;
+  var Desired, Obtained: TSDL_AudioSpec;
+ begin
+  { Set up the requested settings }
+  Desired.freq    := audio_FREQ;
+  Desired.format  := AUDIO_U8;
+  Desired.channels:= 1;
+  Desired.samples := audio_SAMPLES;
+  Desired.callback:= @ProccessAudio;
+  Desired.userdata:= nil;
+
+  if SDL_Init(SDL_INIT_AUDIO) = 0 then
+   if SDL_OpenAudio(@Desired, @Obtained) = 0 then begin
+
+    speaker_on:=false;
+    current_freq:=1; lastfreq:=1;
+    sound_ticks:=1;
+    SDL_PauseAudio(0);
+    InitAudio:=true;
+   end 
+    else InitAudio:=false
+  else
+   InitAudio:=false;
+ end;
+
+procedure InitScrKbd;
+ begin
+  buflen:=127;
+  CheckBreak:=false;
+  if initaudio then sound_supported:=true
+   else begin
+    WriteLn('SDL failed to initialize audio: ', SDL_GetError);
+    sound_supported:=false;
+   end;
+  UTF8Scr:=false;
+  init_windows;
+  nWindow(win1,2,2,79,4);
+  nWindow(win2,2,5,79,24);
+  nsetActiveWin(stdscr);
+ end;
+
+procedure DoneAudio;
+ begin
+  if sound_supported then begin
+   SDL_CloseAudio;
+   SDL_Quit;
+  end;
+ end;
+
+procedure DoneScrKbd;
+ begin
+  DoneAudio;
+  nSetActiveWin(stdscr);
+  clrscr;
+ end;
+
+procedure sound( Hz: Integer );
+ begin
+  if sound_supported then begin
+   sound_i:=0;
+   current_freq:=Hz/audio_Freq;
+   if current_freq > 0 then
+    speaker_on:=true
+   else
+    current_freq:=1;
+  end;
+ end;
+
+procedure nosound;
+ begin
+  if sound_supported then begin
+   if sound_i > 0 then begin
+    speaker_on:=true;
+    while speaker_on do;
+   end else
+    speaker_on:=false;
+  end;
+ end;
+
+procedure sounddelayed( Hz,step: Integer ); forward;
+
+procedure sounddelayed( Hz: Integer );
+ begin
+  sounddelayed( Hz, audio_STEP );
+ end;
+
+procedure sounddelayed( Hz,step: Integer );
+ begin
+  if sound_supported then begin
+   sound_ticks:=sound_ticks+1;
+   if sound_ticks mod step = 0 then begin
+     if sound_i < audio_MAXENTRIES then begin
+      Sound_Freqs[sound_i]:=Hz;
+      sound_i:=sound_i+1;
+     end;
+   end;
+  end;
+ end;
+
+procedure delay( MS: Integer);
+ begin
+  if sound_supported then
+   SDL_delay(MS)
+  else
+{$IFDEF UNIX}
+   ocrt.delay(MS);
+{$ELSE}
+   crt.delay(MS);
+{$ENDIF}
+ end;
+
+procedure ReadLine(var S:String);
+ var Ch: Char;
+ begin
+  Repeat
+   Ch:=ReadKey;
+   write(ch);
+   if (buflen>0) and (ch<>Chr(13)) then begin
+    S:=S+ch;
+    buflen:=buflen-1;
+   end;
+  Until (Ch=chr(13));
+  buflen:=127;
+ end;
+
 procedure SF; begin SFlag:=True end;
 
 procedure Cur(Num:byte);
  begin
-  with Result do
-   if Color then
-    begin AX:=$100;
-     case Num of
-      1:CX:=$707; { Underline   }
-      2:CX:=$8;   { Solid block }
-      3:CX:=$800; { Invisible   }
-     end;
-     intr($10,Result);
-    end;
+  case Num of  
+{$IFDEF UNIX}
+   1:ncursor(cON);  { Underline   }
+   2:ncursor(cBIG); { Solid block }
+   3:nCursor(cOFF); { Invisible   }
+{$ELSE}
+   1:cursoron;      { Underline   }
+   2:cursorbig;     { Solid block }
+   3:cursoroff;     { Invisible   }
+{$ENDIF}
+  end;
  end;
 
 procedure Col(Num1,Num2:byte);
@@ -70,8 +310,8 @@ procedure Bak(Num1,Num2:byte);
 
 procedure Bor(Num1,Num2:byte);
  begin
-  with Result do
-   begin AX:=$B00;if Color then BX:=Num1 else BX:=Num2 end;intr($10,Result)
+  {with Result do
+   begin AX:=$B00;if Color then BX:=Num1 else BX:=Num2 end;intr($10,Result)}
  end;
 
 function  En(Num:byte):boolean;
@@ -87,11 +327,14 @@ procedure Score(Num,pointer:integer);
  begin if not en(pointer)then begin Sc:=Sc+Num;Add(Pointer)end end;
 
 procedure Cn(s:str78);
- begin gotoxy(40-(length(s)div 2),wherey);writeln(s)end;
+ begin gotoxy(40-(length(s)div 2),wherey);write(s);gotoxy(1,wherey+1)end;
+
+procedure wCn(s:str78);
+ begin gotoxy(39-(length(s)div 2),wherey);writeln(s);end;
 
 procedure Pause;
  begin col(15,15);write('Press any key to continue...');
-  read(kbd,CFlag);col(11,7);writeln;
+  CFlag:=ReadKey;col(11,7);writeln;
  end;
 
 procedure Tune(Octave,Note,Duration:integer);
@@ -116,26 +359,32 @@ procedure Play(Start,Stop,Speed:integer);
   var x:integer;
  begin
   if Start<=Stop then
-   for x:=Start to Stop do begin sound(x);delay(Speed)end
+   for x:=Start to Stop do
+    if Speed>0 then begin sound(x);delay(Speed)end
+     else sounddelayed(x)
   else
-   for x:= Start downto Stop do begin sound(x);delay(Speed)end;
-  nosound;if Region=4 then sound(20);if Region=5 then sound(60);
+   for x:= Start downto Stop do
+    if Speed>0 then begin sound(x);delay(Speed)end
+     else sounddelayed(x);
+  if Speed>0 then begin
+   nosound;if Region=4 then sound(20);if Region=5 then sound(60);
+   end;
  end;
 
 procedure Explode(Duration:byte);
   var x:integer;
- begin for x:=Duration*999 downto 20 do sound(random(x));nosound end;
+ begin for x:=Duration*999 downto 20 do sounddelayed(random(x));nosound end;
 
 procedure Walls(Duration:byte);
   var x:integer;
- begin for x:=1 to Duration*999 do sound(random(35)+20);nosound end;
+ begin for x:=1 to Duration*999 do sounddelayed(random(35)+20);nosound end;
 
 procedure Static;
   var x,y:integer;
  begin
   for x:=1 to 50 do
    case random(2) of
-    0:for y:=1 to random(70)+10 do sound(random(4000)+3000);
+    0:for y:=1 to random(70)+10 do sounddelayed(random(4000)+3000);
     1:begin nosound;delay(random(29))end
    end;nosound;if Region=5 then sound(60)
  end;
@@ -150,14 +399,14 @@ procedure Blast;
 procedure Dopen(Num:byte);
  begin writeln('The door slides open...');
   if Num<>0 then play(50,125-Num,Num)
-  else begin for i:=3500 to 5000 do sound(random(4500)+i);nosound;end;
+  else begin for i:=3500 to 5000 do sounddelayed(random(4500)+i);nosound;end;
   if Region=5 then sound(60)
  end;
 
 procedure Dclose(Num:byte);
  begin writeln('The sliding door closes.');
   if Num<>0 then play(125-Num,50,Num)
-  else begin for i:=5000 downto 3500 do sound(random(4500)+i);nosound;end;
+  else begin for i:=5000 downto 3500 do sounddelayed(random(4500)+i);nosound;end;
   if Region=5 then sound(60)
  end;
 
@@ -165,6 +414,45 @@ procedure Door(New,Num:byte);
  begin
   if en(7)then RL(22)else
   if en(8)then RL(23)else begin DOpen(Num);Move(New);DClose(Num)end
+ end;
+
+procedure won; forward;
+
+procedure SoundTest;
+  var ch:char;
+ begin
+
+  while true do begin
+    
+    writeln(' Sounds ');
+    writeln(' 1. Won ');
+    writeln(' 2. explode(32) ');
+    writeln(' 3. Walls(12) ');
+    writeln(' 4. Static ');
+    writeln(' 5. Blast ');
+    writeln(' 6. Dopen(10) ');
+    writeln(' 7. Dclose(0) ');
+    writeln(' Q. Quit ');
+
+    ch:=readkey;
+
+    if ch='q' then halt;
+
+    case ch of
+     '1' : Won;
+     '2' : explode(32);
+     '3' : Walls(12);
+     '4' : Static;
+     '5' : Blast;
+     '6' : Dopen(10);
+     '7' : DClose(0);
+     '8' : begin
+            for x:=1 to 20 do for y:=1 to x*8 do sounddelayed(x*9,trunc((168-y)/8)); nosound;
+           end;
+    end;
+
+  end;
+
  end;
 
 procedure Time1;
@@ -188,7 +476,7 @@ procedure Time1;
    14:RL(9);
    5:begin Bor(4,7);RL(10)end;
    1:begin RL(126);DEAD;end;
-   2..13:begin x:=random(29)+1;
+   2..4,6..13:begin x:=random(29)+1;
           if(x in Inv)and not(x in Wear)then
            begin Van(x);R[x]:=Prm;
             writeln('A bout of weariness causes you to loose your grip on',
@@ -199,7 +487,7 @@ procedure Time1;
   case T[29] of { Laser Injury }
    9:RS(214);
    4:begin RL(507);Bor(4,7)end;
-   2..11:begin repeat x:=random(27)+1 until x in[1..12,16..20,22..26,28];
+   2,3,5..8,10,11:begin repeat x:=random(27)+1 until x in[1..12,16..20,22..26,28];
      if(x in Inv)and not(x in Wear)then
       begin Van(x);R[x]:=Prm;
        if random(2)=0 then
@@ -216,7 +504,7 @@ procedure Time1;
    65:begin PStat:=PStat+[3];RL(208)end;
    47:RL(209); 30:RS(73); 15:RS(74); 4:begin Bor(4,7);RS(75)end;
    1:begin RS(76);DEAD end;
-   2..29:if(random(25)=0)and(Inv<>[])and not(en(125))then
+   2,3,5..14,16..29:if(random(25)=0)and(Inv<>[])and not(en(125))then
           begin RS(232);
            for x:=1 to 29 do if(x in Inv)and not(x in Wear)then
             begin Van(x);R[x]:=Prm end
@@ -226,8 +514,8 @@ procedure Time1;
   if(Prm in[81..88])and(T[30]<1)and(random(4)=0)then
    if 28 in Wear then
     begin T[30]:=9;RS(153+Prm);
-     for i:=999 to 2300 do sound(random(i*3)+i);
-     for i:=3000 downto 20 do sound(random(i*4)+i*2);nosound
+     for i:=999 to 2300 do sounddelayed(random(i*3)+i);
+     for i:=3000 downto 20 do sounddelayed(random(i*4)+i*2);nosound
     end
    else
     begin
@@ -237,18 +525,18 @@ procedure Time1;
       84:write('northwest'); 85:write('north'); 86:write('northeast');
       87:write('east'); 88:write('southeast')
      end; writeln(' section of the corridor and flies');
-     RS(242);RS(243);for i:=20 to 3000 do sound(random(i*3)+i);nosound;
+     RS(242);RS(243);for i:=20 to 3000 do sounddelayed(random(i*3)+i);nosound;
      delay(1500);DEAD
     end;
  end; { Time1 }
 
-overlay procedure Time2A;
+procedure Time2A;
  begin col(10,7);  { Pre-Jungle Planet }
   case T[1] of
    19:MC(1,13,13,0);
    18:begin MC(1,8,8,1);MC(1,13,8,2)end;
    17:if en(19) then begin RS(9);T[1]:=11;end;
-   11..17:if not(en(19))and(Prm=8)and(random(2)=1)then RL(0);
+   11..16:if not(en(19))and(Prm=8)and(random(2)=1)then RL(0);
    10:MC(1,8,9,3);
    9:begin MC(1,9,0,4);T[1]:=Null;end;
    5..7:if(en(2))and(en(3))then begin RB2(5-(T[1]-3),10);col(10,7)end;
@@ -290,7 +578,7 @@ overlay procedure Time2A;
   if Prm=SinkRm then begin RL(85);L[Prm]:=L[Prm]+[79];end;
 end; { Time2A }
 
-overlay procedure Time2B;
+procedure Time2B;
  begin col(10,7);  { Jungle Planet }
   Maze:=not(Maze);
   if Prm in[42..49]then
@@ -320,7 +608,7 @@ overlay procedure Time2B;
   if T[19]=1 then begin RS(128);Walls(12);DEAD;end;
  end; { Time2B }
 
-overlay procedure Time2C;
+procedure Time2C;
  begin col(11,7);  { Inner Planet }
   if T[20]=1 then
    case Prm of 73:DClose(20);66:begin RL(337);play(105,50,20)end end;
@@ -331,8 +619,8 @@ overlay procedure Time2C;
    writeln('There''s an alarm sound coming over the radio.');
    for x:=1 to 23 do
     begin
-     for i:=450 to 999 do sound(i);
-     for i:=999 downto 450 do sound(i);
+     for i:=450 to 999 do sounddelayed(i);
+     for i:=999 downto 450 do sounddelayed(i);
     end;nosound
    end;
   case random(50) of
@@ -343,7 +631,7 @@ overlay procedure Time2C;
   end;
  end; { Time2C }
 
-overlay procedure Time2D;  { Planetship }
+procedure Time2D;  { Planetship }
   function Warn(Message,IfTime,Said:integer):boolean;
    begin Warn:=false;
     if not en(Said)and(IfTime>=T[26])then
@@ -422,76 +710,38 @@ overlay procedure Time2D;  { Planetship }
   if(T[28]=1998)and(Prm=101)then begin RS(213);Blast;DEAD;end;
  end; { Time2D }
 
-overlay procedure Directory;
-type
-  Char12arr = array [ 1..12 ] of Char;
-  String20  = string[ 20 ];
+procedure Directory;
 var
-  Regs      : Entr;
-  DTA       : array [ 1..43 ] of Byte;
-  Mask      : Char12arr;
-  NamR      : String20;
-  Error, I  : Integer;
   SM1Found  : boolean;
+  Info      : TSearchRec;
 begin
-  ChDir(Drive+':');
+  {ChDir(Drive+':');}
   SM1Found:=false;
-  FillChar(DTA,SizeOf(DTA),0);
-  FillChar(Mask,SizeOf(Mask),0);
-  FillChar(NamR,SizeOf(NamR),0);
   writeln;
-  Regs.AX := $1A00;
-  Regs.DS := Seg(DTA);
-  Regs.DX := Ofs(DTA);
-  MSDos(Regs);
-  Error := 0;
-  Mask := '????????.???';
-  Regs.AX := $4E00;
-  Regs.DS := Seg(Mask);
-  Regs.DX := Ofs(Mask);
-  Regs.CX := 22;
-  MSDos(Regs);
-  Error := Regs.AX and $FF;
-  I := 1;
-  if Error=0 then
+  if FindFirst ('*',faAnyFile,Info)=0 then
     repeat
-      NamR[I] := Chr(Mem[Seg(DTA):Ofs(DTA)+29+I]);
-      I := I + 1;
-    until not (NamR[I-1] in [' '..'~']) or (I>20);
-  NamR[0] := Chr(I-1);
-  while Error=0 do begin
-    Error := 0;
-    Regs.AX := $4F00;
-    Regs.CX := 22;
-    MSDos( Regs );
-    Error := Regs.AX and $FF;
-    I := 1;
-    repeat
-      NamR[I] := Chr(Mem[Seg(DTA):Ofs(DTA)+29+I]);
-      I := I + 1;
-    until not (NamR[I-1] in [' '..'~'] ) or (I > 20);
-    NamR[0] := Chr(I-1);
-    delete(NamR,length(NamR),2);
-    if (Error = 0) then
-     if length(NamR)>4 then
-      if copy(NamR,length(NamR)-2,3)='SM1' then
-       begin
-        if not SM1Found then
-         writeln('Here is a list of the SAVE/RESTORE files on the ',
-                 'disk in drive ',up(Drive),':');
+      if length(Info.Name)>4 then
+       if copy(Info.Name,length(Info.Name)-2,3)='sm1' then
+        begin
+         if not SM1Found then
+          writeln('Here is a list of the SAVE/RESTORE files on the ',
+                  'disk in drive ',up(Drive),':');
         SM1Found:=true;
-        writeln('    * ',copy(NamR,1,length(NamR)-4));
+        writeln('    * ',copy(Info.Name,1,length(Info.Name)-4));
        end;
-  end; writeln;
- if not SM1Found then
-  begin
-   writeln('There are not any SAVE/RESTORE files on the disk in drive ',
+    until FindNext(Info)<>0;
+  
+  FindClose(Info);
+  writeln;
+  if not SM1Found then
+   begin
+    writeln('There are not any SAVE/RESTORE files on the disk in drive ',
             up(Drive),':');writeln;
-  end;
- Pause;ChDir(Log+':');
+   end;
+  Pause;{ChDir(Log+':');}
 end; {Directory}
 
-function Up;{Word:Str130):Str1}
+function Up(Word:Str130):Str1;
  begin word:=word+' ';
   if(Word[1]='l')and(Word[2]=' ')then insert('ook',Word,2);
   if(Word[1]='e')and(Word[2]='x')and(Word[3]=' ')then insert('amine',Word,3);
@@ -601,14 +851,14 @@ procedure FindMood(var input:Str130;var Word:Str29;var Md:byte);
   QFormat(input);
  end; { FindMood }
 
-function FN;{(VNP:byte) : Str29;  ( Finds first Noun ) }
+function FN(VNP:byte) : Str29; { ( Finds first Noun ) }
   var Temp:Str29;
  begin SF;
   Temp:=n[VNP];
   FN:=copy(Temp,1,pos('\',Temp)-1);
  end; { FW }
 
-function Here;{Obj:byte) : Boolean;}
+function Here(Obj:byte) : Boolean;
  begin Here:=false;
   if Obj in L[Prm] then Here:=true;
   if(Obj=79)and(MugCon=79)and(29 in Inv)then Here:=true;
@@ -722,7 +972,7 @@ procedure Dictionary(IfFound,SkipList:byte);
   end;
  end; { Dictionary }
 
-procedure RL;
+procedure RL(Pointer:Integer);
  begin SF;
   if(pointer<>StoreL)then
    begin StoreL:=pointer;
@@ -732,7 +982,7 @@ procedure RL;
   writeln(Text3);
  end; { Read Line }
 
-procedure RS;
+procedure RS(Pointer:Integer);
  begin SF;
   if(pointer<>StoreS)then
    begin StoreS:=pointer;
@@ -742,7 +992,7 @@ procedure RS;
   writeln(Text4);
  end; { Read Special }
 
-procedure RR;
+procedure RR(Pointer:integer);
  begin SF;
   if(pointer<>StoreR)then
    begin StoreR:=pointer;
@@ -751,10 +1001,11 @@ procedure RR;
     read(R1,Text1);
     read(R2,Text2);
    end;
-  writeln(Text1,Text2);
+  write(Text1);
+  writeln(Text2);
  end; { Read Room }
 
-procedure RB;
+procedure RB(Pointer,Colour:byte);
   var Block:Str255;
       Tstart,TStop:Str19;
  begin SF; Col(Colour,7);
@@ -771,7 +1022,7 @@ procedure RB;
   until Block=TStop; col(11,7);
  end;
 
-procedure RB2;
+procedure RB2(Pointer,Colour:byte);
   var Block:Str255;
       Tstart,TStop:Str19;
  begin SF; Col(Colour,7);
@@ -788,7 +1039,7 @@ procedure RB2;
   until Block=TStop; col(11,7);
  end;
 
-overlay procedure Won;
+procedure Won;
   const W=800;H=400;Q=200;T=131;
   label JUMP;
  begin writeln;
@@ -833,70 +1084,74 @@ overlay procedure Won;
    tune(3,3,h);tune(3,1,h);tune(2,12,h);tune(2,10,t);tune(2,10,t);tune(2,10,t);
    tune(3,1,w);
   until keypressed;
-  JUMP: read(kbd,CFlag);
+  JUMP: CFlag:=ReadKey;
+  DoneScrKbd;
   window(1,1,80,25);clrscr;gotoxy(2,2);Col(31,31);Bor(0,0);Cur(1);Bak(2,0);
   writeln('Congratulations!');
   HALT;
  end; { Won }
 
-overlay procedure PlayerInput(var LINE:Str130);
+procedure PlayerInput(var LINE:Str130);
   label JUMP;
+  var Ch : Char;
+      ExtCode : integer;
   procedure Key(k:Str19); begin Line:=Line+k;QFlag:=true;write(k)end;
  begin
- with Result do begin
+ {with Result do begin}
   WRITELN; { Main Space In Game }
   if(length(Line)=0)then
    begin
+    nSetActiveWin(win1);
     bak(4,7);col(14,0);
-    window(1,1,80,22);
-    gotoxy(8,2);write(Tic,'   ');
-    gotoxy(35-(length(RN[Prm])div 2),2);
+    gotoxy(7,1);write(Tic,'   ');
+    gotoxy(34-(length(RN[Prm])div 2),1);
       write('      ',RN[Prm],'      ');
-    gotoxy(75,2);write('    ');gotoxy(75,2);write(Sc,' ');
+    gotoxy(74,1);write('    ');gotoxy(74,1);write(Sc,' ');
     bak(7,7);
-    col(1,0);gotoxy(22,3);
+    col(1,0);gotoxy(21,2);
     if PStat=[] then write('Healthy') else write('  *    ');
-    col(15,0);gotoxy(33,3);
+    col(15,0);gotoxy(32,2);
     if 2 in PStat then begin col(31,16);write('Hungry')end
     else write(' *    ');
-    col(4,0);gotoxy(43,3);
+    col(4,0);gotoxy(42,2);
     if 3 in PStat then begin col(20,16);write('Sick')end
     else write(' *  ');
-    col(0,0);gotoxy(51,3);
+    col(0,0);gotoxy(50,2);
     if 4 in PStat then begin col(16,16);write('Injured')end
     else write('   *   ');
-    col(6,0);gotoxy(62,3);
+    col(6,0);gotoxy(61,2);
     if 5 in PStat then begin col(22,16);write('Tired')end
     else write('  *  ');
-    col(5,0);gotoxy(71,3);
+    col(5,0);gotoxy(70,2);
     if 6 in PStat then begin col(21,16);write('Thirsty')end
     else write('   *   ');
-    bak(0,0);window(2,5,79,24);
+    nSetActiveWin(win2);bak(0,0);
     if en(66)then begin gotoxy(1,20);goto JUMP;end;
-    gotoxy(1,20);col(28,31);writeln(chr(175));
+    gotoxy(1,20);col(28,31);writeln;
+    WritePrompt(1,19);
     Cur(1);
     col(14,7);gotoxy(3,19);
     QFlag:=false;
     repeat
-     ax:=0;
-     intr($16,result);
-     sound(99);nosound;case Region of 4:sound(20);5:sound(60)end;
-     case chr(Lo(ax)) of
+     Ch:=Readkey;
+     { Read Extended (Scan) Code }
+     if Ch = #0 then ExtCode:=Ord(Readkey);
+     sounddelayed(99,1);speaker_on:=true;delay(1);case Region of 4:sound(20);5:sound(60)end;
+     case Ch of
      ^h:begin
-         if(wherex=1)and(wherey=20)then
-          begin window(1,1,80,25);gotoxy(80,23)end;
+	if(wherex=1)and(wherey=20)then
+           begin gotoxy(78,wherey-1); ClrEol; end else
          if length(Line)>0 then write(^h,' ',^h);
          delete(Line,length(Line),2);
-         window(2,5,79,24);
         end;
      ^m:QFlag:=true
      else
       begin
-       if(Lo(ax)>0)and(length(Line)<110)then
-        begin write(chr(Lo(ax)));Line:=Line+chr(Lo(ax));end
+       if(Ord(Ch)>0)and(length(Line)<110)then
+        begin write(Ch);Line:=Line+Ch;end
        else { read scan }
         begin
-         case hi(ax) of
+         case ExtCode of
           59:key('Save');      71:key('Northwest');
           60:key('Restore');   73:key('Northeast');
           61:key('R D');       79:key('Southwest');
@@ -909,13 +1164,14 @@ overlay procedure PlayerInput(var LINE:Str130);
           68:begin Line:='';key('Repeat')end;
           94,30:key('by Scott Miller');
           95,47:key('Version A Dec 9, 85');
+          31:SoundTest;
          end;
         if Prm in[1..7] then
-         case hi(ax) of
+         case ExtCode of
           72:key('Fore'); 75:key('Port'); 77:key('Starboard'); 80:key('Aft')
          end
         else
-         case hi(ax) of
+         case ExtCode of
           72:key('North'); 75:key('West'); 77:key('East'); 80:key('South')
          end
        end
@@ -923,7 +1179,7 @@ overlay procedure PlayerInput(var LINE:Str130);
      end; {case}
      until QFlag=true;
     Cur(3);
-    gotoxy(1,19);col(5,7);write(chr(175));col(11,7);gotoxy(1,20);
+    col(5,7);WritePrompt(1,19);col(11,7);gotoxy(1,20);
     if length(Line)>76 then writeln;
     LowerCase(Line);Spaces(Line);
     if(pos(' r ',Line)>0)or(pos(' repeat ',Line)>0)then PreFormat(Line);
@@ -959,16 +1215,19 @@ overlay procedure PlayerInput(var LINE:Str130);
    QFormat(input);
    col(11,7);
    JUMP:
- end; { of with statement }
+ {end;} { of with statement }
  end; { PlayerInput }
 
-overlay procedure Title;
+procedure Title;
+{$IFDEF UNIX}
+ var win:pwindow;
+{$ENDIF}
  begin
   clrscr;textcolor(7);Color:=true;
   if ParamCount=0 then begin
    write('Do you want ');textcolor(15);write('C');textcolor(7);
    write('olor or ');textcolor(15);write('B');textcolor(7);
-   write('lack and white? ');textcolor(15);read(kbd,CFlag);
+   write('lack and white? ');textcolor(15); CFlag:=ReadKey;
    if(upcase(CFlag)='B')or(upcase(CFlag)='M')then
     begin Color:=false;write('Monochrome')end
    else write('Color');delay(300);
@@ -984,7 +1243,7 @@ overlay procedure Title;
   Cur(3);
 
                  {**** Public Domain title screen ****}
-  Col(9,9);gotoxy(1,1);
+  {Col(9,9);gotoxy(1,1);
   cn('S U P E R N O V A');
   Col(9,7);gotoxy(1,3);
   cn('Published by');
@@ -1013,17 +1272,22 @@ overlay procedure Title;
   cn('Thanks, enjoy the game...');
 
   Col(7,7);gotoxy(27,25);delay(999);
-  write('Press any key to continue.');repeat;begin;end;until keypressed;
-  read(kbd,CFlag);bak(1,0);clrscr;
+  write('Press any key to continue.');repeat;delay(1);until keypressed;
+  CFlag:=ReadKey;}bak(1,0);clrscr;
                  {**** Main SUPERNOVA title screen ****}
 
   Bor(1,0);Col(15,15);Bak(4,0);
+{$IFDEF UNIX}
+  nWindow(win,1,1,80,24);
+  nFrame(win);
+{$ELSE}
   for x:=1 to 80 do
    begin gotoxy(x,1);write(chr(205));gotoxy(x,24);write(chr(205))end;
   for y:=1 to 24 do
    begin gotoxy(1,y);write(chr(186));gotoxy(80,y);write(chr(186))end;
   gotoxy(1,1);write(chr(201)); gotoxy(80,1);write(chr(187));
   gotoxy(1,24);write(chr(200)); gotoxy(80,24);write(chr(188));
+{$ENDIF}
   Bak(1,0);
   Col(2,7);gotoxy(1,10);cn('Copyright 1987 Scott Miller');
   Col(14,7);gotoxy(1,12);cn('Version B');
@@ -1037,12 +1301,17 @@ overlay procedure Title;
    if Color then textcolor(random(16))
    else case random(3) of  0:textcolor(0); 1:textcolor(7); 2:textcolor(15)end;
    write('S U P E R N O V A');
+   delay(1);
   until keypressed;
-  read(kbd,CFlag);
+  CFlag:=ReadKey;
+{$IFDEF UNIX}
+  nSetActiveWin(stdscr);
+  nDelWindow(win);
+{$ENDIF}
   if Color then textmode(C80)else textmode(BW80);
  end; { Title }
 
-overlay procedure Init1;
+procedure Init1;
   label Abort;
  begin ABORT:
   Bor(0,0);bak(0,0);clrscr;nosound;
@@ -1051,12 +1320,14 @@ overlay procedure Init1;
   for x:=1 to 20 do begin sound(x*9);delay(x*2)end;nosound;
   gotoxy(1,9);y:=0;col(14,7);Identity:='';
   Cn('Please enter your identity code name:');col(12,15);
-  repeat i:=random(maxint) until keypressed;
-  repeat read(kbd,CFlag);
+  repeat begin i:=random(maxint); delay(1) end; until keypressed;
+  repeat CFlag:=ReadKey;
    if(CFlag<>chr(13))then
     if(CFlag<>^h)then Identity:=Identity+upcase(CFlag)
     else delete(Identity,length(Identity),2);
-   gotoxy(1,11);Cn(' '+Identity+' ');sound(50);delay(50);nosound;
+   gotoxy(1,11);Cn(' '+Identity+' ');
+{sound(50);delay(50);nosound;}
+   for x:=1 to 50 do sounddelayed(50,1); nosound;
   until CFlag=chr(13);
   col(10,7);gotoxy(1,7);
   if identity<>'' then
@@ -1075,9 +1346,15 @@ overlay procedure Init1;
   reset(S1);reset(L1);reset(C1);
  end; { Init1 }
 
-overlay procedure Init2;
+procedure Init2;
  begin
   col(7,15);bak(1,7);
+{$IFDEF UNIX}
+  nFrame(stdscr);
+  nWriteAC(stdscr,1,4,TextAttr,nLT);
+  nWriteAC(stdscr,nCols(stdScr),4,TextAttr,nRT);
+  nrefresh(stdscr);
+{$ELSE}
   for x:=1 to 80 do
    begin gotoxy(x,1);write(chr(205));gotoxy(x,24);write(chr(205))end;
   gotoxy(80,24);write(chr(190));gotoxy(1,24);write(chr(212));
@@ -1087,27 +1364,35 @@ overlay procedure Init2;
   gotoxy(1,4);write(chr(198));for x:=2 to 79 do
    begin gotoxy(x,4);write(chr(205))end;write(chr(181));
   gotoxy(1,1);write(chr(213));gotoxy(80,1);write(chr(184));
-  bak(4,7);col(14,0);gotoxy(2,2);
+{$ENDIF}
+  nSetActiveWin(win1);
+  bak(4,7);col(14,0);gotoxy(1,1);
   for x:=1 to 78 do write(' ');
-   gotoxy(2,2);write('Move');
-  gotoxy(68,2);write('Score');
-  bak(7,7);gotoxy(2,3);
+   gotoxy(1,1);write('Move');
+  gotoxy(67,1);write('Score');
+  bak(7,7);gotoxy(1,2);
   for x:=1 to 78 do write(' ');
   bak(5,7);col(15,0);
-  gotoxy(2,3);write('Player Condition:');
+  gotoxy(1,2);write('Player Condition:');
+  col(7,15);bak(1,7);
+{$IFDEF UNIX}
+  gotoxy(1,3);whLine(win1,nHL,nCols(stdScr)-2);
+  nRefresh(win1);
+{$ENDIF}
+  nSetActiveWin(win2);
   bak(0,0);
-  gotoxy(1,14);col(14,7);
-  cn('Working 14 hours a day in the core of some dusty, smelly mine');
-  cn('is not your idea of the perfect lifestyle.');
-  cn('Barre-An is a dust ball in space, its only salvation being that it is');
-  cn('rich in precious barre-an metal.  Or used to be.  Nowadays the mines');
-  cn('don''t seem so generous, which is why you''re looking for a more');
-  cn('profitable venture.');
-  cn('A break, that''s all you ask for, maybe today you figure...');
+  gotoxy(1,10);col(14,7);
+  wcn('Working 14 hours a day in the core of some dusty, smelly mine');
+  wcn('is not your idea of the perfect lifestyle.');
+  wcn('Barre-An is a dust ball in space, its only salvation being that it is');
+  wcn('rich in precious barre-an metal.  Or used to be.  Nowadays the mines');
+  wcn('don''t seem so generous, which is why you''re looking for a more');
+  wcn('profitable venture.');
+  wcn('A break, that''s all you ask for, maybe today you figure...');
   writeln;
  end; { Init2 }
 
-overlay procedure Init3;
+procedure Init3;
  begin
   Line    :='';
   Again   :='z';
@@ -1161,23 +1446,24 @@ overlay procedure Init3;
   ToNounOnly  :=[33,49,64,88,93];
   ToNounMaybe :=[19,41..44,48,50,53,54,74..76,89,90,92,94];
   { NOTE:  All other verbs would be OneNounOnly! }
-  window(2,5,79,24);gotoxy(1,19);
+  nSetActiveWin(win2);gotoxy(1,19);
  end; { Init3 }
 
-overlay procedure Save;
+procedure Save;
   label JUMPABORT,JUMPBACK;
-  var   DiskTest:file;
+  {var   DiskTest:file;}
  begin SF; JUMPBACK: nosound; for x:=1 to 20 do writeln;
   Bor(2,7);CFlag:=Drive;Cur(2);
   gotoxy(1,2);
+  { remove floppy drive selection
   write('Which disk drive (default ',Up(Drive),':)? ');
-  col(14,15);buflen:=1;readln(Drive);col(11,7);
-  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;
+  col(14,15);buflen:=1;readline(Drive);col(11,7);
+  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;}
   gotoxy(1,5);
   writeln('Make sure your SAVE/RESTORE disk is in disk drive ',up(Drive),':');
   writeln;writeln;
   write('SAVE under what file name (''',up('/'),''' aborts SAVE)? ');
-  buflen:=8;col(14,15);readln(input);col(11,7);
+  buflen:=8;col(14,15);readline(input);col(11,7);
   Cur(3);
   while pos(' ',input)>0 do delete(input,pos(' ',input),1);
   while pos('.',input)>0 do delete(input,pos('.',input),1);
@@ -1190,7 +1476,8 @@ overlay procedure Save;
   if length(input)=0 then input:='LASTSAVE';writeln;writeln;
   writeln('The game file ',Up(Input),' is now being saved on disk drive ',
            up(Drive),':...');
-  input:=Drive+':'+input;
+  { don't put Drive
+  input:=Drive+':'+input;}
   assign(Objects,input+'.sm1');
   rewrite(Objects);
   for x:=0 to RMax do write(Objects,L[x]);
@@ -1218,33 +1505,35 @@ overlay procedure Save;
   writeln('Your present game location is now SAVED under the name ',
            up(input),'.');
   writeln; JUMPABORT: writeln;
+  { remove checking SUPERNOVA floppy disk
   writeln('Please make sure the SUPERNOVA disk is in drive ',up(Log),':');
   writeln;writeln;Pause;
-  assign(DiskTest,'Nova.com');
+  assign(DiskTest,'Nova.com');}
   {$I-}
-  reset(DiskTest);
+  {reset(DiskTest);}
   {$I+}
-  if IOResult<>0 then
+  {if IOResult<>0 then
    begin Col(15,15);close(DiskTest);write(^g);goto JUMPABORT;end;
-  close(DiskTest);Col(11,7);
+  close(DiskTest);} Col(11,7);
   Bor(0,0);Line:='l';
   case Region of 4:sound(20);5:sound(60)end
  end; { SAVE }
 
-overlay procedure Restore;
+procedure Restore;
   label JUMP,JUMPBACK;
-  var   DiskTest:file;
+  {var   DiskTest:file;}
  begin SF; JUMPBACK: nosound; for x:=1 to 25 do writeln;
   Bor(6,7);CFlag:=Drive;Cur(2);
   gotoxy(1,2);
+  { remove floppy disk selection
   write('Which disk drive (default ',Up(Drive),':)? ');
-  col(14,15);buflen:=1;readln(Drive);col(11,7);
-  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;
+  col(14,15);buflen:=1;readline(Drive);col(11,7);
+  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;}
   gotoxy(1,5);
   writeln('Make sure your SAVE/RESTORE disk is in disk drive ',up(Drive),':');
   writeln;writeln;
   write('RESTORE from what file name (''',up('/'),''' aborts RESTORE)? ');
-  buflen:=8;col(14,15);readln(input);col(11,7);
+  buflen:=8;col(14,15);readline(input);col(11,7);
   Cur(3);
   while pos(' ',input)>0 do delete(input,pos(' ',input),1);
   while pos('.',input)>0 do delete(input,pos('.',input),1);
@@ -1257,7 +1546,8 @@ overlay procedure Restore;
   if length(input)=0 then input:='LASTSAVE';writeln;writeln;
   writeln('The game file ',Up(Input),' is now being restored from drive ',
            up(Drive),':...');
-  input:=Drive+':'+input;
+  { Don't put Drive
+  input:=Drive+':'+input;}
   assign(Objects,input+'.sm1');
   {$I-}
   reset(Objects);
@@ -1265,7 +1555,7 @@ overlay procedure Restore;
   if IOResult<>0 then
    begin close(Objects);col(12,15);writeln;writeln;delete(input,1,2);
     for x:=1 to length(input) do input[x]:=upcase(input[x]);
-    Cn('The file '+input+' does not exist on your SAVE/RESTORE disk!');
+    wCn('The file '+input+' does not exist on your SAVE/RESTORE disk!');
     writeln(^g);delay(2000);col(11,7);goto JUMPBACK;
    end;
   reset(Objects);
@@ -1295,15 +1585,16 @@ overlay procedure Restore;
   writeln('Your present game location is now RESTORED from the name ',
            up(input),'.');
   writeln; JUMP: writeln;
+  { remove checking SUPERNOVA floppy disk
   writeln('Please make sure the SUPERNOVA disk is in drive ',up(Log),':');
   writeln;writeln;Pause;
-  assign(DiskTest,'Nova.com');
+  assign(DiskTest,'Nova.com');}
   {$I-}
-  reset(DiskTest);
+  {reset(DiskTest);}
   {$I+}
-  if IOResult<>0 then
+  {if IOResult<>0 then
    begin Col(15,15);close(DiskTest);write(^g);goto JUMP;end;
-  close(DiskTest);Col(11,7);
+  close(DiskTest);} Col(11,7);
   Bor(0,0);
   case Region of 4:sound(20);5:sound(60)end;
   if Region>1 then
@@ -1337,7 +1628,7 @@ procedure MoreThanOne;
   if((N1=58)or(58 in NounSet)or(N2=58))and Here(3) and Here(4) then
    begin Cur(2);
     repeat write('Which one, the R)usty or S)hiney key? ');
-     read(kbd,CFlag);writeln(CFlag);writeln until upcase(CFlag) in ['R','S'];
+     CFlag:=Readkey;writeln(CFlag);writeln until upcase(CFlag) in ['R','S'];
     case upcase(CFlag) of 'R':x:=3; 'S':x:=4 end;
     if N1=58 then N1:=x;
     if N2=58 then N2:=x;
@@ -1346,7 +1637,7 @@ procedure MoreThanOne;
   if((N1=86)or(86 in NounSet)or(N2=86))and(Prm=8)then
    begin Cur(2);
     repeat write('Which one, the W)estern, M)iddle or E)astern table? ');
-     read(kbd,CFlag);writeln(CFlag);
+     CFlag:=ReadKey;writeln(CFlag);
      writeln until upcase(CFlag) in ['W','M','E'];
     case upcase(CFlag) of 'W':x:=83; 'M':x:=84; 'E':x:=85 end;
     if N1=86 then N1:=x;
@@ -1356,7 +1647,7 @@ procedure MoreThanOne;
   if((N1=44)or(44 in NounSet)or(N2=44))and(Prm in[1,70])and(Vb<>28)then
    begin Cur(2);
     repeat write('Which one, the T)an, P)urple or C)yan button? ');
-     read(kbd,CFlag);writeln(CFlag);
+     CFlag:=ReadKey;writeln(CFlag);
      writeln until upcase(CFlag) in ['T','P','C'];
     case upcase(CFlag) of 'T':x:=41; 'P':x:=43; 'C':x:=40 end;
     if N1=44 then N1:=x;
@@ -1535,7 +1826,7 @@ JUMP2:  { Used if the player forgets the second noun or preposition. }
  end;
 end; { Parser Syntax }
 
-procedure MC;{WhichChar,WatchRoom,ToRoom:byte;MessageNum:Integer}
+procedure MC(WhichChar,WatchRoom,ToRoom:byte;MessageNum:Integer);
     { WhichChar refers to the character(s) being moved.               }
     { WatchRoom is the room the player must be in to see the responce.}
     { ToRoom is the room the character(s) move to.                    }
@@ -1555,7 +1846,7 @@ procedure MC;{WhichChar,WatchRoom,ToRoom:byte;MessageNum:Integer}
   SFlag:=false;
  end;
 
-procedure Van;
+procedure Van(o:byte);
  begin
   Inv:=Inv-[o];
   r[o]:=Null;
