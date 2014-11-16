@@ -1,0 +1,41 @@
+This directory is intended to document the history of Supernova and 
+provide documentation of how it became free software.
+
+Supernova was originally written by Scott Miller in the 1980s. Going 
+off of the notices in the source code he began in 1985. The game was 
+originally proprietary.
+
+Later, Scott Miller was one of the founders of Apogee Software, Ltd. 
+in 1987 [0].
+
+According to the corporate timeline [1] Supernova was published in 
+1987 before Apogee started and then released as freeware (but still 
+proprietary) in 1998 [2]. In 2009 Apogee Software released the source 
+code under the GPL [3].
+
+Based on the comments made in the announcement [3] and in the 
+readme.txt that came with the game [4] it appears that they were 
+putting it under the GPL as part of their process to throw the code 
+over the wall to forget about. They even just added the part of it 
+being GPLed underneath the previous text from where the game had been 
+released as freeware in 1998.
+
+In reviewing the license headers in their release [5] there are 
+copyright notices from Apogee Software so it appears that Scott Miller 
+transferred his copyright to Apogee at some point. This make sense 
+since he was one of the founders of the company and the game had been 
+distributed as an Apogee program. Also, the license headers indicated 
+it was specifically released under the GNU General Public License 
+version 2 or any later version. I took advantage of that to upgrade it 
+to the GNU General Public License version 3 or any later version. The 
+modifications are licensed under the GNU Affero General Public License 
+version 3 or any later version. This combination of GPLv3 or later and 
+AGPLv3 or later is permitted under section 13 of each license.
+
+[0] See https://en.wikipedia.org/w/index.php?title=3D_Realms&oldid=605663632 
+[1] See the file timeline.png or visit https://web.archive.org/web/*/http://www.3drealms.com/history.html
+[2] See the file supernova-freeware.pgn or visit https://web.archive.org/web/20141014112730/http://www.3drealms.com/news/1998/03/supernova_relea.html
+[3] See the file gpl-announcement.png or visit https://web.archive.org/web/*/http://www.3drealms.com/news/2009/03/several_old_games_released_as_freeware.html
+[4] See readme.txt in this directory.
+[5] See the initial commit in this git repository or ftp://ftp.3drealms.com/freeware/tit_free.zip
+
