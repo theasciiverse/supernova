@@ -78,6 +78,14 @@ procedure init_windows;
   lang:=upcase(GetEnvironmentVariable('LANG'));  
   UTF8Scr:= (Pos('.UTF-8', lang) > 0) or (Pos('.UTF8', lang) > 0);
   { Check min req col & rows}
+  if nCols(stdscr) < 80 then begin
+   writeln('You must have 80 character columns');
+   Halt;
+  end;
+  if nRows(stdscr) < 25 then begin
+   writeln('You must have 25 character rows');
+   Halt;
+  end;
   {writeln(nCols(stdscr),nRows(stdscr));}
  end;
 
@@ -1305,8 +1313,11 @@ procedure Title;
   until keypressed;
   CFlag:=ReadKey;
 {$IFDEF UNIX}
-  nSetActiveWin(stdscr);
+  nStop;
   nDelWindow(win);
+  nSetActiveWin(stdscr);
+  clrscr;
+  nStart;
 {$ENDIF}
   if Color then textmode(C80)else textmode(BW80);
  end; { Title }
@@ -1326,6 +1337,9 @@ procedure Init1;
     if(CFlag<>^h)then Identity:=Identity+upcase(CFlag)
     else delete(Identity,length(Identity),2);
    gotoxy(1,11);Cn(' '+Identity+' ');
+{$IFDEF UNIX}
+   nRefresh(stdscr);
+{$ENDIF}
 {sound(50);delay(50);nosound;}
    for x:=1 to 50 do sounddelayed(50,1); nosound;
   until CFlag=chr(13);
@@ -1875,4 +1889,3 @@ procedure Say(What1,What2:Str29);
  begin SF; writeln('The ',What1,' is already ',What2,'.') end;
 
 {******************* END OF PARSER AND MISC. PROCEDURES *********************}
-
