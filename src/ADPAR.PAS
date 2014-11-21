@@ -78,11 +78,11 @@ procedure init_windows;
   lang:=upcase(GetEnvironmentVariable('LANG'));  
   UTF8Scr:= (Pos('.UTF-8', lang) > 0) or (Pos('.UTF8', lang) > 0);
   { Check min req col & rows}
-  if nCols(stdscr) < 80 then begin
+  if nCols(stdscr) <> 80 then begin
    writeln('You must have 80 character columns');
    Halt;
   end;
-  if nRows(stdscr) < 25 then begin
+  if nRows(stdscr) <> 25 then begin
    writeln('You must have 25 character rows');
    Halt;
   end;
