@@ -866,7 +866,7 @@ end;
 { lays the stored rows and the main window's rows out again at the main
   window's current width: everything goes to the stored rows, then the
   last of them come back into the window, bottom aligned }
-procedure Reflow(const OldRows: array of TStoredRow);
+procedure Reflow(const OldRows: array of TStoredRow; Below: Integer);
 var
   Lines, Attrs: array of AnsiString;
   Count, I, J, W, Cut, H, Y, X, Total: Integer;
@@ -925,8 +925,10 @@ begin
       A := Copy(A, J, MaxInt);
     until T = '';
   end;
-  { the last H rows go into the window }
-  H := MY2 - MY1 + 1;
+  { the last H rows go into the window, leaving the rows that were below
+    the cursor blank below it again }
+  H := MY2 - MY1 + 1 - Below;
+  if H < 1 then H := 1;
   StoredCount := 0;
   for I := 0 to High(NewRows) - H do
   begin
@@ -941,11 +943,7 @@ begin
     Grid[Y - 1].Len := 0;
     Grid[Y - 1].Wrapped := False;
   end;
-  if Length(NewRows) < H then
-    Y := MY1 + (H - Length(NewRows))
-  else
-    Y := MY1;
-  if Y > MY1 then Y := MY1; { top aligned when the story is short }
+  Y := MY1; { top aligned when the story is short }
   CurY := MY1;
   CurX := MX1;
   for I := 0 to High(NewRows) do
@@ -978,6 +976,7 @@ var
   SaveX1, SaveY1, SaveX2, SaveY2, SaveCX, SaveCY: Integer;
   WasMain: Boolean;
   SaveAttr: Byte;
+  Below: Integer;
 begin
   Result := False;
   TermSize(W, H);
@@ -1000,6 +999,14 @@ begin
   end;
   { the main window's rows down to the cursor's row }
   SetLength(OldRows, 0);
+  Below := 0;
+  if HasMain and WasMain then
+  begin
+    Below := MY2 - CurY;
+    { only blank rows below the cursor are kept as room below it }
+    for Y := CurY + 1 to MY2 do
+      if Grid[Y - 1].Len > 0 then Below := 0;
+  end;
   if HasMain then
   begin
     OX1 := MX1; OX2 := MX2;
@@ -1040,7 +1047,7 @@ begin
     TermX := -1;
     AvOnResize();
     TextAttr := SaveAttr;
-    Reflow(OldRows);
+    Reflow(OldRows, Below);
     if not WasMain then
     begin
       { leave the cursor where it was, inside the new screen }

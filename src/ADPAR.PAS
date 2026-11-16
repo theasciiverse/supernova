@@ -1078,7 +1078,7 @@ procedure PlayerInput(var LINE:Str130);
       end
      end; {case}
      until QFlag=true;
-    Cur(3);AvSetWrap(true);
+    Cur(3);AvSetWrap(true);AvLog('line: '+Line);
     col(5,7);WritePrompt(1,WinH-1);col(11,7);gotoxy(1,WinH);
     if length(Line)>WinW-2 then writeln;
     LowerCase(Line);Spaces(Line);
