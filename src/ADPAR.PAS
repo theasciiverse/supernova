@@ -908,6 +908,7 @@ procedure Won;
   writeln('     Story by  . . . . . . . . . . . . . . . . . . . . . . . Scott Miller');
   writeln('     Additional story development. . . . . . . . . . . . . . . Terry Nagy');
   writeln;writeln;
+  AvLog('won: move '+IntToStr(Tic)+', score '+IntToStr(Sc));
   Vb:=78;Call13;writeln;writeln;Col(3,7);
   write('Press any hey to quit...');
   tune(2,8,q);tune(2,8,q);tune(3,1,w);
@@ -1010,6 +1011,18 @@ procedure PlayerInput(var LINE:Str130);
   if(length(Line)=0)then
    begin
     DrawStatus;
+    if AvLogging then
+     begin
+      VStr:='';
+      if 2 in PStat then VStr:=VStr+' hungry';
+      if 3 in PStat then VStr:=VStr+' sick';
+      if 4 in PStat then VStr:=VStr+' injured';
+      if 5 in PStat then VStr:=VStr+' tired';
+      if 6 in PStat then VStr:=VStr+' thirsty';
+      if VStr='' then VStr:=' healthy';
+      AvLog('turn: move '+IntToStr(Tic)+', score '+IntToStr(Sc)+', room '+
+            IntToStr(Prm)+' '+RN[Prm]+', region '+IntToStr(Region)+','+VStr);
+     end;
     if en(66)then begin gotoxy(1,WinH);goto JUMP;end;
     gotoxy(1,WinH);col(28,31);writeln;
     WritePrompt(1,WinH-1);
@@ -1207,6 +1220,7 @@ procedure Init1;
    for x:=1 to 50 do sounddelayed(50,1); nosound;
   until CFlag=chr(13);
   col(10,7);gotoxy(1,7+Off);
+  AvLog('identity: '+Identity);
   if identity<>'' then
    Cn(' IDENTITY CODE ACCEPTED--YOU MAY PROCEED '+Identity)
   else begin

@@ -1106,6 +1106,7 @@ end; { Default14 }
 procedure DeadMain;
   label JUMP;
  begin writeln;
+  AvLog('died: move '+IntToStr(Tic)+', score '+IntToStr(Sc)+', room '+IntToStr(Prm));
   gotoxy(1,WinH);for x:=5 downto 1 do
    begin writeln;delay(99);sound(300+(x*50));Bor(x,7)end;
   repeat x:=random(14)+1 until not(x in [4,12]);

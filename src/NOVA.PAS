@@ -1743,6 +1743,7 @@ end; { Room23 }
 BEGIN { Main Program }
 DataDir:=AvDataDir;
 StateDir:=AvStateDir('supernova');
+AvLogOpen('SUPERNOVA_LOG',StateDir,'supernova.log');
 Assign1;Assign2;Assign3;Assign4;Assign5;
 Names1;Names2;Names3;
 InitScrKbd;
