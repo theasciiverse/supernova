@@ -68,43 +68,15 @@ function  FN(VNP:byte):Str29;forward;
 function  Here(Obj:byte):Boolean;forward;
 function  Up(Word:Str130):Str1;forward;
 
-{$IFDEF UNIX}
-procedure init_windows;
-  var lang:string;
- begin
-  nEcho(false);
-  stdscr:=nscreen;
-  { Get ENV LANG and check for UTF-8 support}
-  lang:=upcase(GetEnvironmentVariable('LANG'));  
-  UTF8Scr:= (Pos('.UTF-8', lang) > 0) or (Pos('.UTF8', lang) > 0);
-  { Check min req col & rows}
-  if nCols(stdscr) <> 80 then begin
-   writeln('You must have 80 character columns');
-   Halt;
-  end;
-  if nRows(stdscr) <> 25 then begin
-   writeln('You must have 25 character rows');
-   Halt;
-  end;
-  {writeln(nCols(stdscr),nRows(stdscr));}
- end;
-
-procedure WritePrompt(x,y:integer);
- begin
-  { UTF-8 print }
-  if UTF8Scr then
-   { U+00BB, », C2 BB, RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK.}
-   nFWrite(x,y,TextAttr,0,#$C2#$BB)
-  else 
-   nFWrite(x,y,TextAttr,0,chr(187));
-  refresh;
- end;
-
-{$ELSE}
+{ Asciiverse: the screen and keyboard come from avcrt, which draws the PC's
+  80x25 text screen on a terminal of any size. The framed screen grows with
+  the terminal: the status panel across the top, the story window below it.
+  The PC speaker is silent (the SDL square wave of the free-software version
+  is not built), so the waits that only timed a sound are left out. }
 procedure nSetActiveWin(win:pwin);
  begin
   with win^ do
-   window(x,y,x1,y1);
+   if win=win2 then AvSetMainWindow(x,y,x1,y1) else window(x,y,x1,y1);
  end;
 
 procedure nWindow(var win : pwin; x,y,x1,y1 : integer);
@@ -118,7 +90,22 @@ procedure init_windows;
   stdscr:=@win_arr[1];
   win1:=@win_arr[2];
   win2:=@win_arr[3];
-  nWindow(stdscr,1,1,80,25);
+  nWindow(stdscr,1,1,ScreenWidth,ScreenHeight);
+  nWindow(win1,2,2,ScreenWidth-1,4);
+  nWindow(win2,2,5,ScreenWidth-1,ScreenHeight-1);
+ end;
+
+{ the story window's size: 78x20 on the PC }
+function WinW:integer; begin WinW:=ScreenWidth-2 end;
+function WinH:integer; begin WinH:=ScreenHeight-5 end;
+
+{ a row of the death and victory banners, the story window's full width }
+procedure Banner(y:integer;c:char;Edge:boolean);
+ var fx:integer;
+ begin
+  gotoxy(1,y);
+  for fx:=1 to WinW do
+   if Edge or(fx=1)or(fx=WinW)then write(c) else write(' ');
  end;
 
 procedure WritePrompt(x,y:integer);
@@ -126,170 +113,28 @@ procedure WritePrompt(x,y:integer);
   gotoxy(x,y);
   write(chr(175));
  end;
-{$ENDIF}
-
-function square_wave(time : Real):integer;
-  var l:longint;
- begin
-  l:=trunc(time);
-  if time-l < 0.5 then square_wave:=0 
-                  else square_wave:=1;
- end;
-
-{callback function to generate sound}
-procedure ProccessAudio(userdata: Pointer; stream: PUInt8; len: LongInt); cdecl;
-  var i,j,k,step:integer;
- begin
-  step:=audio_STEP;
-  for i:=0 to trunc((len-1)/step) do begin
-   
-   if speaker_on then
-    if sound_i > 0 then begin
-     current_freq:=sound_Freqs[sound_play]/audio_freq;
-     if current_freq=0 then current_freq:=1;
-     sound_play:=sound_play+1;
-     if sound_play > sound_i then begin
-      speaker_on:=false; sound_i:=0; sound_play:=0; end;
-    end;
-
-   lasttime:=trunc(lasttime*lastfreq/current_freq);
-   
-   for j:=0 to step-1 do begin
-    k:=i*step+j;
-    if k<len then
-     if speaker_on then
-      stream[k]:=audio_VOLUME*square_wave(current_freq * (j+lasttime) )
-     else
-      stream[k]:=0;
-   end;
-
-   lasttime:=lasttime+step;
-   lastfreq:=current_freq; 
-  end;
- end; 
-
-function InitAudio:boolean;
-  var Desired, Obtained: TSDL_AudioSpec;
- begin
-  { Set up the requested settings }
-  Desired.freq    := audio_FREQ;
-  Desired.format  := AUDIO_U8;
-  Desired.channels:= 1;
-  Desired.samples := audio_SAMPLES;
-  Desired.callback:= @ProccessAudio;
-  Desired.userdata:= nil;
-
-  if SDL_Init(SDL_INIT_AUDIO) = 0 then
-   if SDL_OpenAudio(@Desired, @Obtained) = 0 then begin
-
-    speaker_on:=false;
-    current_freq:=1; lastfreq:=1;
-    sound_ticks:=1;
-    SDL_PauseAudio(0);
-    InitAudio:=true;
-   end 
-    else InitAudio:=false
-  else
-   InitAudio:=false;
- end;
 
 procedure InitScrKbd;
  begin
   buflen:=127;
   CheckBreak:=false;
-  if initaudio then sound_supported:=true
-   else begin
-    WriteLn('SDL failed to initialize audio: ', SDL_GetError);
-    sound_supported:=false;
-   end;
-  UTF8Scr:=false;
   init_windows;
-  nWindow(win1,2,2,79,4);
-  nWindow(win2,2,5,79,24);
   nsetActiveWin(stdscr);
- end;
-
-procedure DoneAudio;
- begin
-  if sound_supported then begin
-   SDL_CloseAudio;
-   SDL_Quit;
-  end;
  end;
 
 procedure DoneScrKbd;
  begin
-  DoneAudio;
   nSetActiveWin(stdscr);
   clrscr;
  end;
 
-procedure sound( Hz: Integer );
- begin
-  if sound_supported then begin
-   sound_i:=0;
-   current_freq:=Hz/audio_Freq;
-   if current_freq > 0 then
-    speaker_on:=true
-   else
-    current_freq:=1;
-  end;
- end;
+procedure sounddelayed( Hz,step: Integer ); begin end;
 
-procedure nosound;
- begin
-  if sound_supported then begin
-   if sound_i > 0 then begin
-    speaker_on:=true;
-    while speaker_on do;
-   end else
-    speaker_on:=false;
-  end;
- end;
-
-procedure sounddelayed( Hz,step: Integer ); forward;
-
-procedure sounddelayed( Hz: Integer );
- begin
-  sounddelayed( Hz, audio_STEP );
- end;
-
-procedure sounddelayed( Hz,step: Integer );
- begin
-  if sound_supported then begin
-   sound_ticks:=sound_ticks+1;
-   if sound_ticks mod step = 0 then begin
-     if sound_i < audio_MAXENTRIES then begin
-      Sound_Freqs[sound_i]:=Hz;
-      sound_i:=sound_i+1;
-     end;
-   end;
-  end;
- end;
-
-procedure delay( MS: Integer);
- begin
-  if sound_supported then
-   SDL_delay(MS)
-  else
-{$IFDEF UNIX}
-   ocrt.delay(MS);
-{$ELSE}
-   crt.delay(MS);
-{$ENDIF}
- end;
+procedure sounddelayed( Hz: Integer ); begin end;
 
 procedure ReadLine(var S:String);
- var Ch: Char;
  begin
-  Repeat
-   Ch:=ReadKey;
-   write(ch);
-   if (buflen>0) and (ch<>Chr(13)) then begin
-    S:=S+ch;
-    buflen:=buflen-1;
-   end;
-  Until (Ch=chr(13));
+  S:=AvReadLine(buflen,false);
   buflen:=127;
  end;
 
@@ -297,16 +142,10 @@ procedure SF; begin SFlag:=True end;
 
 procedure Cur(Num:byte);
  begin
-  case Num of  
-{$IFDEF UNIX}
-   1:ncursor(cON);  { Underline   }
-   2:ncursor(cBIG); { Solid block }
-   3:nCursor(cOFF); { Invisible   }
-{$ELSE}
+  case Num of
    1:cursoron;      { Underline   }
    2:cursorbig;     { Solid block }
    3:cursoroff;     { Invisible   }
-{$ENDIF}
   end;
  end;
 
@@ -335,10 +174,11 @@ procedure Score(Num,pointer:integer);
  begin if not en(pointer)then begin Sc:=Sc+Num;Add(Pointer)end end;
 
 procedure Cn(s:str78);
- begin gotoxy(40-(length(s)div 2),wherey);write(s);gotoxy(1,wherey+1)end;
+ begin gotoxy((AvWindowWidth div 2)-(length(s)div 2),wherey);write(s);
+  if wherey<AvWindowHeight then gotoxy(1,wherey+1) else writeln end;
 
 procedure wCn(s:str78);
- begin gotoxy(39-(length(s)div 2),wherey);writeln(s);end;
+ begin gotoxy((AvWindowWidth div 2)-(length(s)div 2),wherey);writeln(s);end;
 
 procedure Pause;
  begin col(15,15);write('Press any key to continue...');
@@ -357,7 +197,7 @@ procedure Tune(Octave,Note,Duration:integer);
   if Duration <> 0 then
    begin
     sound(round(Frequency));
-    delay(Duration);
+    delay(Duration div 10); { Asciiverse: a beat, the note is silent }
     nosound
    end
   else sound(round(Frequency));
@@ -368,11 +208,11 @@ procedure Play(Start,Stop,Speed:integer);
  begin
   if Start<=Stop then
    for x:=Start to Stop do
-    if Speed>0 then begin sound(x);delay(Speed)end
+    if Speed>0 then sound(x) { Asciiverse: no wait for a silent tone }
      else sounddelayed(x)
   else
    for x:= Start downto Stop do
-    if Speed>0 then begin sound(x);delay(Speed)end
+    if Speed>0 then sound(x)
      else sounddelayed(x);
   if Speed>0 then begin
    nosound;if Region=4 then sound(20);if Region=5 then sound(60);
@@ -1051,24 +891,21 @@ procedure Won;
   const W=800;H=400;Q=200;T=131;
   label JUMP;
  begin writeln;
-  gotoxy(1,20);for x:=1 to 5 do
+  gotoxy(1,WinH);for x:=1 to 5 do
    begin writeln;delay(99);sound(x*50);Bor(x,7)end;
-  gotoxy(1,15);col(4,15);bak(1,7);
-  writeln('#######################################',
-          '#######################################');
+  col(4,15);bak(1,7);
+  Banner(WinH-5,'#',true);
   delay(99);sound(300);Bor(6,0);
-  gotoxy(1,16);for x:=1 to 3 do begin
-  write('#                                      ',
-        '                                      #');
-        delay(99);sound(300+(x*50));Bor(x+8,15)end;gotoxy(1,19);
-  write('#######################################',
-        '#######################################');
+  for x:=1 to 3 do begin
+  Banner(WinH-5+x,'#',false);
+        delay(99);sound(300+(x*50));Bor(x+8,15)end;
+  Banner(WinH-1,'#',true);
   delay(99);sound(500);Bor(14,0);
-  gotoxy(26,17);col(31,31);
+  gotoxy((WinW div 2)-13,WinH-3);col(31,31);
   write('Y O U   H A V E   W O N ! !');delay(99);sound(550);
-  gotoxy(1,20);bak(0,0);Bor(2,7);writeln;delay(99);nosound;
+  gotoxy(1,WinH);bak(0,0);Bor(2,7);writeln;delay(99);nosound;
   for x:=1 to 12 do begin writeln;delay(80)end;
-  gotoxy(1,9);Col(9,9);
+  gotoxy(1,WinH-11);Col(9,9);
   writeln('                              S U P E R N O V A');writeln;Col(11,7);
   writeln('     Programmed by . . . . . . . . . . . . . . . . . . . . . Scott Miller');
   writeln('     Story by  . . . . . . . . . . . . . . . . . . . . . . . Scott Miller');
@@ -1094,27 +931,48 @@ procedure Won;
   until keypressed;
   JUMP: CFlag:=ReadKey;
   DoneScrKbd;
-  window(1,1,80,25);clrscr;gotoxy(2,2);Col(31,31);Bor(0,0);Cur(1);Bak(2,0);
-  writeln('Congratulations!');
+  AvFarewell('Congratulations!');
   HALT;
  end; { Won }
 
-procedure PlayerInput(var LINE:Str130);
-  label JUMP;
-  var Ch : Char;
-      ExtCode : integer;
-  procedure Key(k:Str19); begin Line:=Line+k;QFlag:=true;write(k)end;
+{ Asciiverse: the frame and the status panel, drawn for the terminal's size
+  when the game starts and again whenever the terminal is resized }
+procedure DrawFrame;
+ var fx,fy:integer;
  begin
- {with Result do begin}
-  WRITELN; { Main Space In Game }
-  if(length(Line)=0)then
-   begin
+  init_windows;
+  nSetActiveWin(stdscr);
+  col(7,15);bak(1,7);
+  for fx:=1 to ScreenWidth do
+   begin gotoxy(fx,1);write(chr(205));gotoxy(fx,ScreenHeight);write(chr(205))end;
+  for fy:=2 to ScreenHeight-1 do
+   begin gotoxy(1,fy);write(chr(179));gotoxy(ScreenWidth,fy);write(chr(179))end;
+  gotoxy(1,4);write(chr(198));for fx:=2 to ScreenWidth-1 do
+   begin gotoxy(fx,4);write(chr(205))end;
+  gotoxy(ScreenWidth,4);write(chr(181));
+  gotoxy(1,1);write(chr(213));gotoxy(ScreenWidth,1);write(chr(184));
+  gotoxy(1,ScreenHeight);write(chr(212));
+  gotoxy(ScreenWidth,ScreenHeight);write(chr(190));
+  nSetActiveWin(win1);
+  bak(4,7);col(14,0);gotoxy(1,1);
+  for fx:=1 to WinW do write(' ');
+   gotoxy(1,1);write('Move');
+  gotoxy(WinW-11,1);write('Score');
+  bak(7,7);gotoxy(1,2);
+  for fx:=1 to WinW do write(' ');
+  bak(5,7);col(15,0);
+  gotoxy(1,2);write('Player Condition:');
+  col(7,15);bak(1,7);
+ end;
+
+procedure DrawStatus;
+ begin
     nSetActiveWin(win1);
     bak(4,7);col(14,0);
     gotoxy(7,1);write(Tic,'   ');
-    gotoxy(34-(length(RN[Prm])div 2),1);
+    gotoxy((WinW div 2)-5-(length(RN[Prm])div 2),1);
       write('      ',RN[Prm],'      ');
-    gotoxy(74,1);write('    ');gotoxy(74,1);write(Sc,' ');
+    gotoxy(WinW-4,1);write('    ');gotoxy(WinW-4,1);write(Sc,' ');
     bak(7,7);
     col(1,0);gotoxy(21,2);
     if PStat=[] then write('Healthy') else write('  *    ');
@@ -1134,11 +992,33 @@ procedure PlayerInput(var LINE:Str130);
     if 6 in PStat then begin col(21,16);write('Thirsty')end
     else write('   *   ');
     nSetActiveWin(win2);bak(0,0);
-    if en(66)then begin gotoxy(1,20);goto JUMP;end;
-    gotoxy(1,20);col(28,31);writeln;
-    WritePrompt(1,19);
+ end;
+
+procedure Resized;
+ var Attr:byte;
+ begin
+  Attr:=TextAttr;
+  DrawFrame;DrawStatus;
+  TextAttr:=Attr;
+ end;
+
+procedure PlayerInput(var LINE:Str130);
+  label JUMP;
+  var Ch : Char;
+      ExtCode : integer;
+  procedure Key(k:Str19); begin Line:=Line+k;QFlag:=true;write(k)end;
+ begin
+ {with Result do begin}
+  WRITELN; { Main Space In Game }
+  if(length(Line)=0)then
+   begin
+    DrawStatus;
+    if en(66)then begin gotoxy(1,WinH);goto JUMP;end;
+    gotoxy(1,WinH);col(28,31);writeln;
+    WritePrompt(1,WinH-1);
     Cur(1);
-    col(14,7);gotoxy(3,19);
+    col(14,7);gotoxy(3,WinH-1);
+    AvSetWrap(false);
     QFlag:=false;
     repeat
      Ch:=Readkey;
@@ -1147,8 +1027,8 @@ procedure PlayerInput(var LINE:Str130);
      sounddelayed(99,1);speaker_on:=true;delay(1);case Region of 4:sound(20);5:sound(60)end;
      case Ch of
      ^h:begin
-	if(wherex=1)and(wherey=20)then
-           begin gotoxy(78,wherey-1); ClrEol; end else
+	if(wherex=1)and(wherey=WinH)then
+           begin gotoxy(WinW,wherey-1); ClrEol; end else
          if length(Line)>0 then write(^h,' ',^h);
          delete(Line,length(Line),2);
         end;
@@ -1157,6 +1037,8 @@ procedure PlayerInput(var LINE:Str130);
       begin
        if(Ord(Ch)>0)and(length(Line)<110)then
         begin write(Ch);Line:=Line+Ch;end
+       else if AvPageKey(ExtCode,false) then
+        { Asciiverse: Shift+PgUp and Shift+PgDn page back through the story }
        else { read scan }
         begin
          case ExtCode of
@@ -1186,9 +1068,9 @@ procedure PlayerInput(var LINE:Str130);
       end
      end; {case}
      until QFlag=true;
-    Cur(3);
-    col(5,7);WritePrompt(1,19);col(11,7);gotoxy(1,20);
-    if length(Line)>76 then writeln;
+    Cur(3);AvSetWrap(true);
+    col(5,7);WritePrompt(1,WinH-1);col(11,7);gotoxy(1,WinH);
+    if length(Line)>WinW-2 then writeln;
     LowerCase(Line);Spaces(Line);
     if(pos(' r ',Line)>0)or(pos(' repeat ',Line)>0)then PreFormat(Line);
     if(Line='r')or(Line='repeat')then Line:=Again else Again:=Line;
@@ -1227,10 +1109,9 @@ procedure PlayerInput(var LINE:Str130);
  end; { PlayerInput }
 
 procedure Title;
-{$IFDEF UNIX}
- var win:pwindow;
-{$ENDIF}
+ var Off:integer;
  begin
+  Off:=(ScreenHeight-25)div 2;
   clrscr;textcolor(7);Color:=true;
   if ParamCount=0 then begin
    write('Do you want ');textcolor(15);write('C');textcolor(7);
@@ -1285,65 +1166,54 @@ procedure Title;
                  {**** Main SUPERNOVA title screen ****}
 
   Bor(1,0);Col(15,15);Bak(4,0);
-{$IFDEF UNIX}
-  nWindow(win,1,1,80,24);
-  nFrame(win);
-{$ELSE}
-  for x:=1 to 80 do
-   begin gotoxy(x,1);write(chr(205));gotoxy(x,24);write(chr(205))end;
-  for y:=1 to 24 do
-   begin gotoxy(1,y);write(chr(186));gotoxy(80,y);write(chr(186))end;
-  gotoxy(1,1);write(chr(201)); gotoxy(80,1);write(chr(187));
-  gotoxy(1,24);write(chr(200)); gotoxy(80,24);write(chr(188));
-{$ENDIF}
+  for x:=1 to ScreenWidth do
+   begin gotoxy(x,1);write(chr(205));gotoxy(x,ScreenHeight-1);write(chr(205))end;
+  for y:=1 to ScreenHeight-1 do
+   begin gotoxy(1,y);write(chr(186));gotoxy(ScreenWidth,y);write(chr(186))end;
+  gotoxy(1,1);write(chr(201)); gotoxy(ScreenWidth,1);write(chr(187));
+  gotoxy(1,ScreenHeight-1);write(chr(200));
+  gotoxy(ScreenWidth,ScreenHeight-1);write(chr(188));
   Bak(1,0);
-  Col(2,7);gotoxy(1,10);cn('Copyright 1987 Scott Miller');
-  Col(14,7);gotoxy(1,12);cn('Version B');
-  Col(7,7);gotoxy(1,15);
+  Col(2,7);gotoxy(1,10+Off);cn('Copyright 1987 Scott Miller');
+  Col(14,7);gotoxy(1,12+Off);cn('Version B');
+  Col(7,7);gotoxy(1,15+Off);
   cn('Programmed by Scott Miller');
   cn('Story by Scott Miller and Terry Nagy');
-  gotoxy(1,23);Col(3,7);
+  gotoxy(1,23+Off);Col(3,7);
   cn('Press any key to continue.');
   repeat
-   gotoxy(32,8);
+   gotoxy((ScreenWidth div 2)-8,8+Off);
    if Color then textcolor(random(16))
    else case random(3) of  0:textcolor(0); 1:textcolor(7); 2:textcolor(15)end;
    write('S U P E R N O V A');
-   delay(1);
+   delay(60); { Asciiverse: the PC took about a millisecond a turn; 60 keeps
+                the colours flickering without flooding the terminal }
   until keypressed;
   CFlag:=ReadKey;
-{$IFDEF UNIX}
-  nStop;
-  nDelWindow(win);
-  nSetActiveWin(stdscr);
-  clrscr;
-  nStart;
-{$ENDIF}
   if Color then textmode(C80)else textmode(BW80);
  end; { Title }
 
 procedure Init1;
   label Abort;
- begin ABORT:
+  var Off:integer;
+ begin ABORT: Off:=(ScreenHeight-25)div 2;
   Bor(0,0);bak(0,0);clrscr;nosound;
   Cur(3);randomize;
-  GetDir(0,Word);Log:=Word[1];
+  Log:='A'; { Asciiverse: was the current drive's letter, from a folder name
+             too long for Word, which failed the next write }
   for x:=1 to 20 do begin sound(x*9);delay(x*2)end;nosound;
-  gotoxy(1,9);y:=0;col(14,7);Identity:='';
+  gotoxy(1,9+Off);y:=0;col(14,7);Identity:='';
   Cn('Please enter your identity code name:');col(12,15);
   repeat begin i:=random(maxint); delay(1) end; until keypressed;
   repeat CFlag:=ReadKey;
    if(CFlag<>chr(13))then
     if(CFlag<>^h)then Identity:=Identity+upcase(CFlag)
     else delete(Identity,length(Identity),2);
-   gotoxy(1,11);Cn(' '+Identity+' ');
-{$IFDEF UNIX}
-   nRefresh(stdscr);
-{$ENDIF}
+   gotoxy(1,11+Off);Cn(' '+Identity+' ');
 {sound(50);delay(50);nosound;}
    for x:=1 to 50 do sounddelayed(50,1); nosound;
   until CFlag=chr(13);
-  col(10,7);gotoxy(1,7);
+  col(10,7);gotoxy(1,7+Off);
   if identity<>'' then
    Cn(' IDENTITY CODE ACCEPTED--YOU MAY PROCEED '+Identity)
   else begin
@@ -1362,40 +1232,12 @@ procedure Init1;
 
 procedure Init2;
  begin
-  col(7,15);bak(1,7);
-{$IFDEF UNIX}
-  nFrame(stdscr);
-  nWriteAC(stdscr,1,4,TextAttr,nLT);
-  nWriteAC(stdscr,nCols(stdScr),4,TextAttr,nRT);
-  nrefresh(stdscr);
-{$ELSE}
-  for x:=1 to 80 do
-   begin gotoxy(x,1);write(chr(205));gotoxy(x,24);write(chr(205))end;
-  gotoxy(80,24);write(chr(190));gotoxy(1,24);write(chr(212));
-  gotoxy(1,4);InsLine;
-  for x:=2 to 24 do
-   begin gotoxy(1,x);write(chr(179));gotoxy(80,x);write(chr(179))end;
-  gotoxy(1,4);write(chr(198));for x:=2 to 79 do
-   begin gotoxy(x,4);write(chr(205))end;write(chr(181));
-  gotoxy(1,1);write(chr(213));gotoxy(80,1);write(chr(184));
-{$ENDIF}
-  nSetActiveWin(win1);
-  bak(4,7);col(14,0);gotoxy(1,1);
-  for x:=1 to 78 do write(' ');
-   gotoxy(1,1);write('Move');
-  gotoxy(67,1);write('Score');
-  bak(7,7);gotoxy(1,2);
-  for x:=1 to 78 do write(' ');
-  bak(5,7);col(15,0);
-  gotoxy(1,2);write('Player Condition:');
-  col(7,15);bak(1,7);
-{$IFDEF UNIX}
-  gotoxy(1,3);whLine(win1,nHL,nCols(stdScr)-2);
-  nRefresh(win1);
-{$ENDIF}
+  bak(0,0);clrscr; { the identity screen goes before the frame is drawn }
+  DrawFrame;
+  AvOnResize:=@Resized;
   nSetActiveWin(win2);
   bak(0,0);
-  gotoxy(1,10);col(14,7);
+  gotoxy(1,WinH-10);col(14,7);
   wcn('Working 14 hours a day in the core of some dusty, smelly mine');
   wcn('is not your idea of the perfect lifestyle.');
   wcn('Barre-An is a dust ball in space, its only salvation being that it is');
@@ -1460,7 +1302,7 @@ procedure Init3;
   ToNounOnly  :=[33,49,64,88,93];
   ToNounMaybe :=[19,41..44,48,50,53,54,74..76,89,90,92,94];
   { NOTE:  All other verbs would be OneNounOnly! }
-  nSetActiveWin(win2);gotoxy(1,19);
+  nSetActiveWin(win2);gotoxy(1,WinH-1);
  end; { Init3 }
 
 procedure Save;

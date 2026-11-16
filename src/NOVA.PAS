@@ -55,11 +55,7 @@
 (****************************************************************************)
 
 {$C-,R-,V-,S-}
-{$IFDEF UNIX}
-uses ncurses,ocrt,sysutils,SDL;
-{$ELSE}
-uses crt,sysutils,SDL;
-{$ENDIF}
+uses avcrt,sysutils;
 
 const
    VMax    = 95;     { Verbs   }
@@ -89,10 +85,8 @@ type
    Str234  = string[234];
    Str255  = string[255];
    {Entr    = record AX,BX,CX,DX,BP,SI,DI,DS,ES,Flags:integer;end;}
-{$IFNDEF UNIX}
    TWindow = record x,y,x1,y1:integer;end;
    PWin    = ^TWindow;
-{$ENDIF}
    LSet    = set of 1..NMax;
    SaveSet = record
               aInv    : set of 1..MMax;
@@ -116,9 +110,7 @@ var
    win1,win2,
    stdscr  : pwin;
    UTF8Scr : boolean;
-{$IFNDEF UNIX}
    win_arr : array [1..3] of TWindow;
-{$ENDIF}
    SetSave : SaveSet;
    Sets    : file of SaveSet;
    Objects : file of LSet;

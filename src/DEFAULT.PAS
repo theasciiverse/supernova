@@ -173,7 +173,7 @@ case Vb of
       close(T2);if IOResult<>0 then begin end;
       {$I+}
       DoneScrKbd;
-      window(1,1,80,25);nosound;clrscr;Cur(1);Bor(0,0);gotoxy(2,2);
+      window(1,1,ScreenWidth,ScreenHeight);nosound;clrscr;Cur(1);Bor(0,0);gotoxy(2,2);
       Col(31,16);Bak(4,7);writeln('Good-bye!');halt;
      end
     else RL(13);Bor(0,0);
@@ -883,7 +883,7 @@ case Vb of
     CFlag:=Readkey;
     if upcase(CFlag)<>'Y' then RL(169)
     else
-     begin RL(170);delay(2000);window(1,1,80,25);clrscr;Bor(0,0);nosound;
+     begin RL(170);delay(2000);window(1,1,ScreenWidth,ScreenHeight);clrscr;Bor(0,0);nosound;
       close(R1);close(R2);close(S1);close(L1);close(C1);
       {$I-}
       close(T1);if IOResult<>0 then begin end;
@@ -1108,22 +1108,19 @@ end; { Default14 }
 procedure DeadMain;
   label JUMP;
  begin writeln;
-  gotoxy(1,20);for x:=5 downto 1 do
+  gotoxy(1,WinH);for x:=5 downto 1 do
    begin writeln;delay(99);sound(300+(x*50));Bor(x,7)end;
   repeat x:=random(14)+1 until not(x in [4,12]);
-  gotoxy(1,15);col(x,15);bak(4,7);
-  writeln('***************************************',
-          '***************************************');
+  col(x,15);bak(4,7);
+  Banner(WinH-5,'*',true);
   delay(99);sound(300);Bor(6,0);
-  gotoxy(1,16);for x:=3 downto 1 do begin
-  write('*                                      ',
-        '                                      *');
-        delay(99);sound(100+(x*50));Bor(x+8,15)end;gotoxy(1,19);
-  write('***************************************',
-        '***************************************');
+  for x:=3 downto 1 do begin
+  Banner(WinH-1-x,'*',false);
+        delay(99);sound(100+(x*50));Bor(x+8,15)end;
+  Banner(WinH-1,'*',true);
   delay(99);sound(100);Bor(14,0);
-  gotoxy(30,17);col(16,31);write('YOU HAVE DIED!!!');delay(99);sound(50);
-  gotoxy(1,20);bak(0,0);col(11,7);Bor(12,7);writeln;delay(99);nosound;
+  gotoxy((WinW div 2)-9,WinH-3);col(16,31);write('YOU HAVE DIED!!!');delay(99);sound(50);
+  gotoxy(1,WinH);bak(0,0);col(11,7);Bor(12,7);writeln;delay(99);nosound;
   delay(999);i:=random(3)+2;
   tune(i,3,830);tune(i,3,770);tune(i,3,200);tune(i,3,0);delay(800);
   tune(i,6,400);tune(i,5,400);tune(i,5,400);
@@ -1137,7 +1134,7 @@ procedure DeadMain;
    play(500,500,40);Col(11,7);
   until CFlag in['S','R','Q'];Bor(0,0);Cur(3);
   case CFlag of
-   'S':begin RL(170);delay(1500);window(1,1,80,25);clrscr;
+   'S':begin RL(170);delay(1500);window(1,1,ScreenWidth,ScreenHeight);clrscr;
         close(R1);close(R2);close(S1);close(L1);close(C1);
         {$I-}
         close(T1);if IOResult<>0 then begin end;
@@ -1147,7 +1144,7 @@ procedure DeadMain;
         Halt(ExecuteProcess(ParamStr(0),''));
        end;
    'R':begin Min(126);Restore;if not en(126)then goto JUMP end;
-   'Q':begin window(1,1,80,25);clrscr;Col(3,7);
+   'Q':begin window(1,1,ScreenWidth,ScreenHeight);clrscr;Col(3,7);
         close(R1);close(R2);close(S1);close(L1);close(C1);
         {$I-}
         close(T1);if IOResult<>0 then begin end;
