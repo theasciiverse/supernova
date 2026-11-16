@@ -827,7 +827,7 @@ procedure RL(Pointer:Integer);
     seek(L1,pointer);
     read(L1,Text3)
    end;
-  writeln(Text3);
+  AvShowText(Text3,'',78);
  end; { Read Line }
 
 procedure RS(Pointer:Integer);
@@ -837,7 +837,7 @@ procedure RS(Pointer:Integer);
     seek(S1,pointer);
     read(S1,Text4)
    end;
-  writeln(Text4);
+  AvShowText(Text4,'',78);
  end; { Read Special }
 
 procedure RR(Pointer:integer);
@@ -849,8 +849,7 @@ procedure RR(Pointer:integer);
     read(R1,Text1);
     read(R2,Text2);
    end;
-  write(Text1);
-  writeln(Text2);
+  AvShowText(Text1,Text2,78);
  end; { Read Room }
 
 procedure RB(Pointer,Colour:byte);
