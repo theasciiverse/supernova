@@ -173,8 +173,7 @@ case Vb of
       close(T2);if IOResult<>0 then begin end;
       {$I+}
       DoneScrKbd;
-      window(1,1,ScreenWidth,ScreenHeight);nosound;clrscr;Cur(1);Bor(0,0);gotoxy(2,2);
-      Col(31,16);Bak(4,7);writeln('Good-bye!');halt;
+      AvFarewell('Good-bye!');halt;
      end
     else RL(13);Bor(0,0);
    end;
@@ -889,8 +888,7 @@ case Vb of
       close(T1);if IOResult<>0 then begin end;
       close(T2);if IOResult<>0 then begin end;
       {$I+}
-      DoneScrKbd;
-      Halt(ExecuteProcess(ParamStr(0),''));
+      AvRestart;
      end;Bor(0,0);
    end;
 
@@ -1140,8 +1138,7 @@ procedure DeadMain;
         close(T1);if IOResult<>0 then begin end;
         close(T2);if IOResult<>0 then begin end;
         {$I+}
-        DoneScrKbd;
-        Halt(ExecuteProcess(ParamStr(0),''));
+        AvRestart;
        end;
    'R':begin Min(126);Restore;if not en(126)then goto JUMP end;
    'Q':begin window(1,1,ScreenWidth,ScreenHeight);clrscr;Col(3,7);
@@ -1150,9 +1147,9 @@ procedure DeadMain;
         close(T1);if IOResult<>0 then begin end;
         close(T2);if IOResult<>0 then begin end;
         {$I+}
-        writeln('In ',Tic,' moves you scored ',Sc,
-                ' out of a possible 1000 points.');writeln;
-        Col(31,16);Bak(1,7);writeln('Good-bye!');writeln;Cur(1);
+        AvFarewell('In '+IntToStr(Tic)+' moves you scored '+IntToStr(Sc)+
+                ' out of a possible 1000 points.');
+        AvFarewell('Good-bye!');
         HALT;
        end
   end {case}

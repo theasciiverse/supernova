@@ -209,6 +209,8 @@ var
    Color,
    QFlag,
    SFlag   : boolean;  { If TRUE then a Special action took place. }
+   DataDir,            { Asciiverse: the data files, beside the program, }
+   StateDir: string;   { and saved games, in the state folder }
 {----------}
 
 {$I ADPAR.pas   <<<<<------  LOADS IN MANY PARSER COMMANDS  ***************}
@@ -1739,6 +1741,8 @@ end; { Room23 }
 
 
 BEGIN { Main Program }
+DataDir:=AvDataDir;
+StateDir:=AvStateDir('supernova');
 Assign1;Assign2;Assign3;Assign4;Assign5;
 Names1;Names2;Names3;
 InitScrKbd;

@@ -566,14 +566,13 @@ begin
   {ChDir(Drive+':');}
   SM1Found:=false;
   writeln;
-  if FindFirst ('*',faAnyFile,Info)=0 then
+  if FindFirst (StateDir+'*.sm1',faAnyFile,Info)=0 then
     repeat
       if length(Info.Name)>4 then
        if copy(Info.Name,length(Info.Name)-2,3)='sm1' then
         begin
          if not SM1Found then
-          writeln('Here is a list of the SAVE/RESTORE files on the ',
-                  'disk in drive ',up(Drive),':');
+          writeln('Here is a list of your saved games:');
         SM1Found:=true;
         writeln('    * ',copy(Info.Name,1,length(Info.Name)-4));
        end;
@@ -583,8 +582,7 @@ begin
   writeln;
   if not SM1Found then
    begin
-    writeln('There are not any SAVE/RESTORE files on the disk in drive ',
-            up(Drive),':');writeln;
+    writeln('There are not any saved games yet.');writeln;
    end;
   Pause;{ChDir(Log+':');}
 end; {Directory}
@@ -1220,11 +1218,13 @@ procedure Init1;
   LowerCase(Identity);ChopSeven(Identity);
   delay(1500);
   if Identity='' then goto ABORT;
-  assign(L1,'L1');
-  assign(C1,'C1');
-  assign(S1,'S1');
-  assign(R1,'R1');assign(R2,'R2');
-  assign(T1,'SM');assign(T2,'B1');
+  if not FileExists(DataDir+'R1') then
+   AvFatal('Supernova cannot find its data files (R1 and the rest) in '+DataDir);
+  assign(L1,DataDir+'L1');
+  assign(C1,DataDir+'C1');
+  assign(S1,DataDir+'S1');
+  assign(R1,DataDir+'R1');assign(R2,DataDir+'R2');
+  assign(T1,DataDir+'SM');assign(T2,DataDir+'B1');
   reset(R1);reset(R2);
   reset(S1);reset(L1);reset(C1);
  end; { Init1 }
@@ -1304,47 +1304,45 @@ procedure Init3;
   nSetActiveWin(win2);gotoxy(1,WinH-1);
  end; { Init3 }
 
+{ Asciiverse: saved games are kept in the player's state folder, so there
+  is no SAVE/RESTORE disk to put in a drive and the screen is not cleared
+  for one: the game asks for a name and saves or restores at once }
+procedure CleanName;
+ var Clean:Str130;
+ begin
+  Clean:='';
+  for x:=1 to length(input) do
+   if upcase(input[x]) in['A'..'Z','0'..'9','-','_','/'] then
+    Clean:=Clean+input[x];
+  input:=Clean;
+ end;
+
 procedure Save;
   label JUMPABORT,JUMPBACK;
-  {var   DiskTest:file;}
- begin SF; JUMPBACK: nosound; for x:=1 to 20 do writeln;
-  Bor(2,7);CFlag:=Drive;Cur(2);
-  gotoxy(1,2);
-  { remove floppy drive selection
-  write('Which disk drive (default ',Up(Drive),':)? ');
-  col(14,15);buflen:=1;readline(Drive);col(11,7);
-  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;}
-  gotoxy(1,5);
-  writeln('Make sure your SAVE/RESTORE disk is in disk drive ',up(Drive),':');
-  writeln;writeln;
+ begin SF; JUMPBACK: nosound; writeln;
+  Bor(2,7);Cur(2);
   write('SAVE under what file name (''',up('/'),''' aborts SAVE)? ');
-  buflen:=8;col(14,15);readline(input);col(11,7);
+  buflen:=8;col(14,15);readline(input);col(11,7);writeln;
   Cur(3);
-  while pos(' ',input)>0 do delete(input,pos(' ',input),1);
-  while pos('.',input)>0 do delete(input,pos('.',input),1);
-  while pos(':',input)>0 do delete(input,pos(':',input),1);
+  CleanName;
   if pos('/',input)>0 then
-   begin writeln;writeln(up('SAVE ABORTED'));goto JUMPABORT;end;
+   begin writeln(up('SAVE ABORTED'));goto JUMPABORT;end;
   LowerCase(input);
   if(pos('list',input)>0)or(pos('dir',input)>0)or(pos('file',input)>0)then
    begin Directory;goto JUMPBACK;end;
-  if length(input)=0 then input:='LASTSAVE';writeln;writeln;
-  writeln('The game file ',Up(Input),' is now being saved on disk drive ',
-           up(Drive),':...');
-  { don't put Drive
-  input:=Drive+':'+input;}
-  assign(Objects,input+'.sm1');
+  if length(input)=0 then input:='lastsave';
+  assign(Objects,StateDir+input+'.sm1');
   rewrite(Objects);
   for x:=0 to RMax do write(Objects,L[x]);
   close(Objects);
-  assign(Things,input+'.sm2');
+  assign(Things,StateDir+input+'.sm2');
   rewrite(Things);
   write(Things,Prm,Region,MugCon,FoodCon,SatchCon,NicheCon,PyraCon,
                HingeCon,PodumCon,AlienRm,FriendRm,SinkRm,Serum,TFlag,
                RobotCon,CodeSet,ScrnSet,HolstCon);
   for x:=1 to MMax do write(Things,R[x]);
   close(Things);
-  assign(Timers,input+'.sm3');
+  assign(Timers,StateDir+input+'.sm3');
   rewrite(Timers);
   write(Timers,Tic,Sc,RC,Floor);
   for x:=1 to TMax do write(Timers,T[x]);
@@ -1352,83 +1350,58 @@ procedure Save;
   with SetSave do
    begin aInv:=Inv;aPStat:=PStat;aEvents:=Events;
     aSocket:=Socket;aWear:=Wear;end;
-  assign(Sets,input+'.sm4');
+  assign(Sets,StateDir+input+'.sm4');
   rewrite(Sets);
   write(Sets,SetSave);
   close(Sets);
-  writeln;writeln;delete(input,1,2);
+  AvLog('saved: '+input);
   writeln('Your present game location is now SAVED under the name ',
            up(input),'.');
-  writeln; JUMPABORT: writeln;
-  { remove checking SUPERNOVA floppy disk
-  writeln('Please make sure the SUPERNOVA disk is in drive ',up(Log),':');
-  writeln;writeln;Pause;
-  assign(DiskTest,'Nova.com');}
-  {$I-}
-  {reset(DiskTest);}
-  {$I+}
-  {if IOResult<>0 then
-   begin Col(15,15);close(DiskTest);write(^g);goto JUMPABORT;end;
-  close(DiskTest);} Col(11,7);
+  JUMPABORT: writeln;
+  Col(11,7);
   Bor(0,0);Line:='l';
   case Region of 4:sound(20);5:sound(60)end
  end; { SAVE }
 
 procedure Restore;
   label JUMP,JUMPBACK;
-  {var   DiskTest:file;}
- begin SF; JUMPBACK: nosound; for x:=1 to 25 do writeln;
-  Bor(6,7);CFlag:=Drive;Cur(2);
-  gotoxy(1,2);
-  { remove floppy disk selection
-  write('Which disk drive (default ',Up(Drive),':)? ');
-  col(14,15);buflen:=1;readline(Drive);col(11,7);
-  Drive:=upcase(Drive);if not(Drive in['A','B'])then Drive:=CFlag;}
-  gotoxy(1,5);
-  writeln('Make sure your SAVE/RESTORE disk is in disk drive ',up(Drive),':');
-  writeln;writeln;
+ begin SF; JUMPBACK: nosound; writeln;
+  Bor(6,7);Cur(2);
   write('RESTORE from what file name (''',up('/'),''' aborts RESTORE)? ');
-  buflen:=8;col(14,15);readline(input);col(11,7);
+  buflen:=8;col(14,15);readline(input);col(11,7);writeln;
   Cur(3);
-  while pos(' ',input)>0 do delete(input,pos(' ',input),1);
-  while pos('.',input)>0 do delete(input,pos('.',input),1);
-  while pos(':',input)>0 do delete(input,pos(':',input),1);
+  CleanName;
   if pos('/',input)>0 then
-   begin writeln;writeln(up('RESTORE ABORTED'));goto JUMP;end;
+   begin writeln(up('RESTORE ABORTED'));goto JUMP;end;
   LowerCase(input);
   if(pos('list',input)>0)or(pos('dir',input)>0)or(pos('file',input)>0)then
    begin Directory;goto JUMPBACK;end;
-  if length(input)=0 then input:='LASTSAVE';writeln;writeln;
-  writeln('The game file ',Up(Input),' is now being restored from drive ',
-           up(Drive),':...');
-  { Don't put Drive
-  input:=Drive+':'+input;}
-  assign(Objects,input+'.sm1');
+  if length(input)=0 then input:='lastsave';
+  assign(Objects,StateDir+input+'.sm1');
   {$I-}
   reset(Objects);
   {$I+}
   if IOResult<>0 then
-   begin close(Objects);col(12,15);writeln;writeln;delete(input,1,2);
+   begin col(12,15);
     for x:=1 to length(input) do input[x]:=upcase(input[x]);
-    wCn('The file '+input+' does not exist on your SAVE/RESTORE disk!');
-    writeln(^g);delay(2000);col(11,7);goto JUMPBACK;
+    wCn('There is no saved game named '+input+'.');
+    writeln(^g);col(11,7);goto JUMPBACK;
    end;
-  reset(Objects);
   for x:=0 to RMax do read(Objects,L[x]);
   close(Objects);
-  assign(Things,input+'.sm2');
+  assign(Things,StateDir+input+'.sm2');
   reset(Things);
   read(Things,Prm,Region,MugCon,FoodCon,SatchCon,NicheCon,PyraCon,
               HingeCon,PodumCon,AlienRm,FriendRm,SinkRm,Serum,TFlag,
               RobotCon,CodeSet,ScrnSet,HolstCon);
   for x:=1 to MMax do read(Things,R[x]);
   close(Things);
-  assign(Timers,input+'.sm3');
+  assign(Timers,StateDir+input+'.sm3');
   reset(Timers);
   read(Timers,Tic,Sc,RC,Floor);
   for x:=1 to TMax do read(Timers,T[x]);
   close(Timers);
-  assign(Sets,input+'.sm4');
+  assign(Sets,StateDir+input+'.sm4');
   reset(Sets);
   read(Sets,SetSave);
   close(Sets);
@@ -1436,20 +1409,11 @@ procedure Restore;
    begin Inv:=aInv;PStat:=aPStat;Events:=aEvents;
     Socket:=aSocket;Wear:=aWear;end;
   Add(126);
-  writeln;writeln;delete(input,1,2);
+  AvLog('restored: '+input);
   writeln('Your present game location is now RESTORED from the name ',
            up(input),'.');
-  writeln; JUMP: writeln;
-  { remove checking SUPERNOVA floppy disk
-  writeln('Please make sure the SUPERNOVA disk is in drive ',up(Log),':');
-  writeln;writeln;Pause;
-  assign(DiskTest,'Nova.com');}
-  {$I-}
-  {reset(DiskTest);}
-  {$I+}
-  {if IOResult<>0 then
-   begin Col(15,15);close(DiskTest);write(^g);goto JUMP;end;
-  close(DiskTest);} Col(11,7);
+  JUMP: writeln;
+  Col(11,7);
   Bor(0,0);
   case Region of 4:sound(20);5:sound(60)end;
   if Region>1 then
