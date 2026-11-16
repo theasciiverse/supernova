@@ -1122,6 +1122,7 @@ procedure Title;
  var Off:integer;
  begin
   Off:=(ScreenHeight-25)div 2;
+  if ScreenHeight<25 then Off:=-1; { the frame's bottom line is row 23 }
   clrscr;textcolor(7);Color:=true;
   { Asciiverse: the game asked whether the screen was colour or black and
     white; now it plays in colour unless NO_COLOR is set (or it is started
