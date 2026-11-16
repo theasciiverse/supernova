@@ -1,0 +1,150 @@
+# Builds Supernova for the Asciiverse catalog: one archive per
+# target, supernova-<target>.tar.gz (.zip on Windows), plus
+# SHA256SUMS, attached to a GitHub release (hub/catalog/SCHEMA.md,
+# release.source = "github"). Runs on a pushed release tag such as
+# v1.0+20141121-av.1, or by hand: with a tag it builds and releases that
+# tag, without one it only builds and tests the branch.
+#
+# Free Pascal 3.2.2 throughout. Linux: Ubuntu's fp-compiler, static by
+# default. macOS: the official intelarm64 package, on a runner of each
+# architecture. Windows: cross-built on Linux with Ubuntu's win64 units.
+# Each build plays a few turns in a pseudo-terminal (asciiverse/smoke.py).
+
+name: release
+
+on:
+  push:
+    tags: ["*-av.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "existing tag to build and release (empty: build only)"
+        required: false
+        default: ""
+
+env:
+  TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.sha }}
+
+      - name: Free Pascal
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fp-compiler
+
+      - name: Build, check and package
+        run: |
+          asciiverse/build.sh
+          file out/supernova
+          file out/supernova | grep -q "statically linked"
+          asciiverse/package.sh ${{ matrix.target }}
+          python3 asciiverse/smoke.py stage/supernova/supernova
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, runner: macos-15, ppc: ppca64, units: aarch64-darwin }
+          - { target: x86_64-apple-darwin, runner: macos-15-intel, ppc: ppcx64, units: x86_64-darwin }
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.sha }}
+
+      - name: Free Pascal
+        run: |
+          curl -fsSL --retry 5 -o fpc.dmg \
+            "https://downloads.sourceforge.net/project/freepascal/Mac%20OS%20X/3.2.2/fpc-3.2.2.intelarm64-macosx.dmg"
+          echo "05d4510c8c887e3c68de20272abf62171aa5b2ef1eba6bce25e4c0bc41ba8b7d  fpc.dmg" | shasum -a 256 -c
+          hdiutil attach fpc.dmg -nobrowse -mountpoint /tmp/fpcdmg
+          pkgutil --expand-full \
+            /tmp/fpcdmg/fpc-3.2.2-intelarm64-macosx.mpkg/Contents/Packages/fpc-3.2.2-intelarm64-macosx.pkg \
+            "$RUNNER_TEMP/fpcpkg"
+          hdiutil detach /tmp/fpcdmg
+          echo "FPCLIB=$RUNNER_TEMP/fpcpkg/Payload/usr/local/lib/fpc/3.2.2" >> "$GITHUB_ENV"
+
+      - name: Build, check and package
+        run: |
+          FPC="$FPCLIB/${{ matrix.ppc }}" \
+          FPCFLAGS="-Fu$FPCLIB/units/${{ matrix.units }}/* -XR$(xcrun --show-sdk-path)" \
+            asciiverse/build.sh
+          file out/supernova
+          if otool -L out/supernova | tail -n +2 | grep -v -E "^\s*/usr/lib/"; then
+            echo "supernova links a library outside the system" >&2; exit 1
+          fi
+          asciiverse/package.sh ${{ matrix.target }}
+          python3 asciiverse/smoke.py stage/supernova/supernova
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  windows:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET: x86_64-pc-windows-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.sha }}
+
+      - name: Build and package
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fp-compiler fp-units-win-rtl-3.2.2 zip
+          FPCFLAGS=-Twin64 EXE=.exe asciiverse/build.sh
+          file out/supernova.exe
+          asciiverse/package.sh $TARGET
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TARGET }}
+          path: dist/*
+
+  release:
+    needs: [linux, macos, windows]
+    if: ${{ !cancelled() && (inputs.tag || github.ref_type == 'tag') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Supernova $TAG" \
+                 --notes "Supernova, Scott Miller's 1987 text adventure, from Jason Self's free-software revival, built for the Asciiverse catalog: Linux, macOS and Windows. Changes: see PATCHES.md."
+          gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
