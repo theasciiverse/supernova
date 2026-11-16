@@ -1110,14 +1110,10 @@ procedure Title;
  begin
   Off:=(ScreenHeight-25)div 2;
   clrscr;textcolor(7);Color:=true;
-  if ParamCount=0 then begin
-   write('Do you want ');textcolor(15);write('C');textcolor(7);
-   write('olor or ');textcolor(15);write('B');textcolor(7);
-   write('lack and white? ');textcolor(15); CFlag:=ReadKey;
-   if(upcase(CFlag)='B')or(upcase(CFlag)='M')then
-    begin Color:=false;write('Monochrome')end
-   else write('Color');delay(300);
-  end
+  { Asciiverse: the game asked whether the screen was colour or black and
+    white; now it plays in colour unless NO_COLOR is set (or it is started
+    with /B or /M, as before) }
+  if ParamCount=0 then Color:=not AvNoColor
   else
    begin input:=ParamStr(1);CFlag:=input[1];
     if(CFlag='/')and(length(input)>1)then CFlag:=input[2];
