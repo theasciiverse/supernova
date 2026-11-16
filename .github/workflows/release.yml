@@ -81,23 +81,30 @@ jobs:
             "https://downloads.sourceforge.net/project/freepascal/Mac%20OS%20X/3.2.2/fpc-3.2.2.intelarm64-macosx.dmg"
           echo "05d4510c8c887e3c68de20272abf62171aa5b2ef1eba6bce25e4c0bc41ba8b7d  fpc.dmg" | shasum -a 256 -c
           hdiutil attach fpc.dmg -nobrowse -mountpoint /tmp/fpcdmg
-          pkgutil --expand-full \
-            /tmp/fpcdmg/fpc-3.2.2-intelarm64-macosx.mpkg/Contents/Packages/fpc-3.2.2-intelarm64-macosx.pkg \
-            "$RUNNER_TEMP/fpcpkg"
+          pkg=$(find /tmp/fpcdmg -name "fpc-3.2.2-intelarm64-macosx.pkg" | head -n 1)
+          pkgutil --expand-full "$pkg" "$RUNNER_TEMP/fpcpkg"
           hdiutil detach /tmp/fpcdmg
-          echo "FPCLIB=$RUNNER_TEMP/fpcpkg/Payload/usr/local/lib/fpc/3.2.2" >> "$GITHUB_ENV"
+          ppc=$(find "$RUNNER_TEMP/fpcpkg" -name ${{ matrix.ppc }} -type f | head -n 1)
+          units=$(find "$RUNNER_TEMP/fpcpkg" -type d -path "*/units/${{ matrix.units }}" | head -n 1)
+          echo "compiler $ppc, units $units"
+          echo "FPC=$ppc" >> "$GITHUB_ENV"
+          echo "FPCUNITS=$units" >> "$GITHUB_ENV"
 
       - name: Build, check and package
         run: |
-          FPC="$FPCLIB/${{ matrix.ppc }}" \
-          FPCFLAGS="-Fu$FPCLIB/units/${{ matrix.units }}/* -XR$(xcrun --show-sdk-path)" \
-            asciiverse/build.sh
+          # FPC 3.2.2 predates the linker of Xcode 15 and later; if the
+          # build or its smoke test fails, link again with the classic one
+          for extra in "" "-k-ld_classic"; do
+            FPCFLAGS="-Fu$FPCUNITS/* -XR$(xcrun --show-sdk-path) -WM11.0 $extra" \
+              asciiverse/build.sh || continue
+            asciiverse/package.sh ${{ matrix.target }}
+            python3 asciiverse/smoke.py stage/supernova/supernova && ok=1 && break
+          done
+          test -n "${ok:-}"
           file out/supernova
           if otool -L out/supernova | tail -n +2 | grep -v -E "^\s*/usr/lib/"; then
             echo "supernova links a library outside the system" >&2; exit 1
           fi
-          asciiverse/package.sh ${{ matrix.target }}
-          python3 asciiverse/smoke.py stage/supernova/supernova
 
       - uses: actions/upload-artifact@v4
         with:
